@@ -2,6 +2,13 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <math.h>
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+
+#ifdef __APPLE__
+	#include <OpenCL/OpenCL.h>
+#else
+	#include <CL/cl.h>
+#endif
 
 #define PI 3.1415926535
 #define TAN_DEG(X) tan((X) * 1.0 * PI / 180)
@@ -18,8 +25,14 @@
 	todo:
 		cleanup code and make things more consistent (make things that need to be pointers pointers, otherwise just copy it)
 		switch on material
+			clear material
+			image textures
 		switch on type of intersection
-		bvh
+		bvh (aabbs)
+		triangles
+		photon mapping maybe
+		try to make it fast enough for real time ray tracing?!?!!?
+
 */
 
 struct vec3 {
@@ -113,6 +126,7 @@ struct Sphere {
 	// yes/no
 	int lambertian;
 	double r;
+	double ior;
 	struct Shader* material;
 };
 
@@ -123,7 +137,8 @@ void sphere_normal(struct Sphere* hit_sphere, struct vec3* point, struct vec3* n
 
 #define PVEC(v) printf("%f %f %f\n", v.x, v.y, v.z);
 
-int sphere_intersect(struct Sphere* sphere, struct vec3* position, struct vec3* direction, double* time_out) {
+int sphere_intersect(struct Sphere* sphere, struct vec3* position, 
+						struct vec3* direction, double* time_out) {
 
 	struct vec3 v;
 	vec3_set(&v, position);
@@ -216,7 +231,8 @@ void cam_getRay(struct cam* cam, int width_id, int height_id, struct vec3* out) 
 }
 long total_bounces = 0;
 int pix = 0;
-void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position, struct vec3 direction, struct vec3* final_color, struct vec3 background_color) {
+void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
+				struct vec3 direction, struct vec3* final_color, struct vec3 background_color) {
 
 	struct vec3 attenuation, col;
 	attenuation = (struct vec3) {1,1,1};
@@ -270,7 +286,7 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position, st
 		// PVEC(normal);
 		// break;
 
-		if (hit->lambertian) {
+		if (hit->type == 0) {
 			// for lambertian brdf/pdf = 1/pi apparently i dont know why
 
 			// attenuation = attenuation * cos(normal, new_direction)
@@ -287,11 +303,15 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position, st
 			
 			vec3_add(&new_direction, &normal, &new_direction);
 
-		} else {
+		} else if (hit->type == 1){
+			// reflection
 			struct vec3 backwards;
 			vec3_multiply(&normal, vec3_dot(&normal, &direction) * 2, &backwards);
 			vec3_sub(&direction, &backwards, &new_direction);
 			vec3_normalize(&new_direction, &new_direction);
+			
+		} else {
+			// transmissive
 			
 		}
 
@@ -319,7 +339,9 @@ void gamma_correct(struct vec3* px, double degree) {
 
 #define IMG_PIX(i,j) img[(i) * cam->width + (j)]
 
-void render(struct cam* cam, int samples, struct Sphere* spheres, size_t sphere_count, struct vec3** image) {
+void render(struct cam* cam, int samples, struct Sphere* spheres, 
+				size_t sphere_count, struct vec3** image) {
+
 	// develop the camera stuff?
 	
 	cam_init(cam);
@@ -356,7 +378,8 @@ void render(struct cam* cam, int samples, struct Sphere* spheres, size_t sphere_
 #define IMG_WIDTH 500
 #define IMG_HEIGHT 300
 
-void viewport_render(struct cam* cam, int samples, struct Sphere* spheres, size_t sphere_count, struct vec3** image) {
+void viewport_render(struct cam* cam, int samples, struct Sphere* spheres,
+					 	size_t sphere_count, struct vec3** image) {
 
 	cam_init(cam);
 
