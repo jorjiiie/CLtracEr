@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <OpenCL/opencl.h>
 
-#define NUM_VALUES (1<<7)
+#define NUM_VALUES (1<<10)
 #define MAX_SOURCE 10000 * sizeof(char)
 int validate(int* input, int* output) {
 	for (int i=0;i<NUM_VALUES;i++) {
@@ -16,6 +16,7 @@ int validate(int* input, int* output) {
 }
 
 int main() {
+
 	int i;
 	char name[128];
 
@@ -79,9 +80,9 @@ int main() {
 	ret = clEnqueueReadBuffer(command_queue, b_device, CL_TRUE, 0, NUM_VALUES * sizeof(int)
 								, b, 0, NULL, NULL);
 
-	for (int i=0;i<NUM_VALUES;i++) {
-		fprintf(stdout,"%d * %d = %d\n", a[i],i,b[i]);
-	}
+	// for (int i=0;i<NUM_VALUES;i++) {
+		// fprintf(stdout,"%d * %d = %d\n", a[i],i,b[i]);
+	// }
 
 
 }

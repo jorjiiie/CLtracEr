@@ -13,7 +13,7 @@
 #define PI 3.1415926535
 #define TAN_DEG(X) tan((X) * 1.0 * PI / 180)
 
-#define NEAR_CLIP 0.001
+#define NEAR_CLIP 0.01
 #define FAR_CLIP 100000000
 #define RAND() (rand() * 1.0 / RAND_MAX)
 #define RANDRANGE(a,b) ((a) + ((b - a) * (rand() * 1.0 / RAND_MAX)))
@@ -86,6 +86,11 @@ void vec3_copy(struct vec3* a, struct vec3* b) {
 	b->x = a->x;
 	b->y = a->y;
 	b->z = a->z;
+}
+void vec3_negate(struct vec3* a, struct vec3* b) {
+	b->x = -a->x;
+	b->y = -a->y;
+	b->z = -a->z;
 }
 void vec3_random_sphere(struct vec3* a) {
 	a->x = RANDRANGE(-1,1);
@@ -244,12 +249,12 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 
 	int bounces;
 	for (bounces = 0; bounces < 15; bounces++) {
+
 		double t = FAR_CLIP;
 		struct Sphere* hit = NULL;
 		for (int i = 0; i < sphere_count; i++) {
 			double tt;
 			if (sphere_intersect(&spheres[i], &position, &direction, &tt)) {
-				// printf("hit %lf %lf\n", tt,t);
 				if (tt < t && tt > NEAR_CLIP) {
 					t = tt;
 					hit = &spheres[i];
@@ -257,28 +262,28 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 			}
 		}
 
-		// printf("hi\n");
-		// if (bounces > 6) 
-			// printf("bounce %d: attenuation %f %f %f\n",bounces, attenuation.x, attenuation.y, attenuation.z);
 		if (hit==NULL) {
-			//bgrd attenuated
+			// background * attenuation
 			vec3_mult2(&attenuation, &background_color, &attenuation);
 			vec3_add(&col, &attenuation, &col);
 			break;
 		}
+
 		if (bounces == 0)
 			pix++;
+
 
 		struct vec3 hit_point;
 		vec3_multiply(&direction,t,&hit_point);
 		vec3_add(&hit_point,&position,&hit_point);
-		// all lambertian diffuse for now
 
 		struct vec3 tmp_light;
 
+		// add the light to the multiplied attenuation
 		vec3_mult2(&hit->emit,&attenuation,&tmp_light);
 		vec3_add(&col, &tmp_light, &col);
 
+		// multiply by albedo for the picking up of colors
 		vec3_mult2(&hit->alb, &attenuation, &attenuation);
 
 
@@ -287,9 +292,12 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 
 		vec3_normalize(&normal, &normal);
 
+
 		if (vec3_dot(&normal, &direction) > 0) {
 			vec3_multiply(&normal, -1, &normal);
 		}
+
+
 		if (hit->type == 0) {
 			// for lambertian brdf/pdf = 1/pi apparently i dont know why
 
@@ -297,14 +305,13 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 
 			vec3_multiply(&attenuation,1/PI,&attenuation);
 
-			// vec3_random_sphere2(RAND(), RAND(), &new_direction);
-			vec3_random_sphere(&new_direction);
+			vec3_random_sphere2(RAND(), RAND(), &new_direction);
+			// vec3_random_sphere(&new_direction);
 			vec3_normalize(&new_direction,&new_direction);
 	
 			double cos_t = ABS(vec3_dot(&normal, &new_direction));
 			// vec3_multiply(&attenuation, cos_t, &attenuation);
 
-			
 			vec3_add(&new_direction, &normal, &new_direction);
 
 
@@ -313,11 +320,64 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 			struct vec3 backwards;
 			vec3_multiply(&normal, vec3_dot(&normal, &direction) * 2, &backwards);
 			vec3_sub(&direction, &backwards, &new_direction);
-			vec3_normalize(&new_direction, &new_direction);
 			
 		} else {
 			// transmissive
-			
+			double cos_t = -vec3_dot(&normal, &direction);
+			double sin_t = sqrt(1.0 - cos_t * cos_t);
+
+
+
+			double ior = 1.0/(hit->ior);
+			int inside = 0;
+			if (cos_t < 0.0) {
+				ior = 1.0/ior;
+				cos_t = -cos_t;
+				inside = 1;
+			}
+			// if (inside) printf("hi\n");
+			// if (!inside) printf(":(\n");
+			// if (!inside) printf("cos sin ior %lf %lf %lf\n",cos_t,sin_t,ior);
+
+			// schlick from ray tracing in a weekend
+			double r0 = (1-ior) / (1+ior);
+			r0 = r0*r0;
+			double r1 = r0 + (1+r0)*pow((1-cos_t),5);
+
+			if (ior * sin_t <= 1.0 || r1 > RAND()) {
+				// refract
+				// printf("cos sin ior %lf %lf %lf\n",cos_t,sin_t,ior);
+
+				struct vec3 r_perp;
+				vec3_multiply(&normal,-cos_t,&r_perp);
+				// vec3_add(&r_perp,&direction,&r_perp);
+				// vec3_add(&r_perp, &normal, &r_perp);
+				// vec3_sub(&r_perp, &direction, &r_perp);
+				vec3_sub(&r_perp, &normal, &r_perp);
+
+				vec3_multiply(&r_perp,ior,&r_perp);
+
+				struct vec3 r_par;
+
+				double inside = 1.0 - vec3_dot(&r_perp, &r_perp);
+				vec3_multiply(&normal, -sqrt(ABS(inside)), &r_par);
+
+				vec3_add(&r_par,&r_perp,&new_direction);
+
+			} else {
+				// reflect
+				// printf("hi\n");
+				struct vec3 backwards;
+				if (inside) {
+					// flip normal bc its inside
+					vec3_multiply(&normal, vec3_dot(&normal, &direction) * 2, &backwards);
+				} else {
+					vec3_multiply(&normal, -vec3_dot(&normal, &direction) * 2, &backwards);
+
+				}
+				vec3_sub(&direction, &backwards, &new_direction);
+			}
+
 		}
 
 		if (bounces > 4) {
@@ -332,6 +392,7 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 		vec3_set(&position, &hit_point);
 		vec3_set(&direction, &new_direction);
 		vec3_normalize(&direction,&direction);
+
 	}
 	total_bounces += bounces;
 	vec3_set(final_color,&col);
@@ -377,13 +438,12 @@ void render(struct cam* cam, int samples, struct Sphere* spheres,
 			vec3_multiply(&IMG_PIX(height_id, width_id), 1.0/samples, &IMG_PIX(height_id, width_id));
 			gamma_correct(&IMG_PIX(height_id, width_id), 0.5);
 		}
-		printf("%dhi\n",height_id);
 
 	}
 }
 // go through seen
-#define IMG_WIDTH 300
-#define IMG_HEIGHT 200
+#define IMG_WIDTH 600
+#define IMG_HEIGHT 400
 
 void viewport_render(struct cam* cam, int samples, struct Sphere* spheres,
 					 	size_t sphere_count, struct vec3** image) {
@@ -519,14 +579,14 @@ int main() {
 		(struct Sphere) {.pos = (struct vec3) {0,1005,0},
 						 .r = 1000,
 						 .emit = zero,
-						 .alb = grey,
+						 .alb = {0.1,0.1,0.7},
 						 .type = 0,
 						 .vp = zero},
 		// left wall
 		(struct Sphere) {.pos = (struct vec3) {0,-1005,0},
 						 .r = 1000,
 						 .emit = zero,
-						 .alb = grey,
+						 .alb = (struct vec3) {0.7,.1,.1},
 						 .type = 0,
 						 .vp = zero},
 		// top wall
@@ -551,29 +611,30 @@ int main() {
 						 .type = 0,
 						 .vp = grey},
 		// light
-		(struct Sphere) {.pos = (struct vec3) {5,0,2.5},
+		(struct Sphere) {.pos = (struct vec3) {5,0,4},
 						 .r = 1,
-						 .emit = (struct vec3) {15,15,15},
+						 .emit = (struct vec3) {35,35,35},
 						 .alb = grey,
 						 .type = 1,
 						 .vp = zero},
 		(struct Sphere) {.pos = (struct vec3) {5,-3,-1.5},
 						 .r = 2,
 						 .emit = zero,
-						 .alb = (struct vec3) {.7, .2, .2},
+						 .alb = grey,
 						 .type = 0,
 						 .vp = zero},
-		(struct Sphere) {.pos = (struct vec3) {5,3,-1.5},
+		(struct Sphere) {.pos = (struct vec3) {7,3,-1},
 						 .r = 1.5,
 						 .emit = zero,
 						 .alb = (struct vec3) {.8, .8, .8},
-						 .type = 1,
+						 .type = 2,
+						 .ior = 1.5,
 						 .vp = zero}
 	};
 //*/
-	render(&cam, 6000, spheres, 8, &IMAGE);
+	render(&cam, 2000, spheres, 8, &IMAGE);
 
-	FILE *out = fopen("testbleed.ppm", "w");
+	FILE *out = fopen("transmission??.ppm", "w");
 	fprintf(out, "P3 %d %d 255\n",cam.width, cam.height);
 	for (int height_id = 0; height_id < cam.height; height_id++) 
 		for (int width_id = 0; width_id < cam.width; width_id++) {

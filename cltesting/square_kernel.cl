@@ -3,5 +3,6 @@ __kernel void square(
 	__global int* output) 
 {
 	int i = get_global_id(0);
-	output[i] = input[i] * input[i];
+	for (int i=0;i<50000000;i++) 
+		output[i] = input[i] * input[i];
 }
