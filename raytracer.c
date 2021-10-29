@@ -21,11 +21,13 @@
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define ABS(a) ((a) < 0 ? (-a) : (a))
+#define IMG_WIDTH 600
+#define IMG_HEIGHT 400
+
 /*
 	todo:
 		cleanup code and make things more consistent (make things that need to be pointers pointers, otherwise just copy it)
 		switch on material
-			clear material
 			image textures
 		switch on type of intersection
 		bvh (aabbs)
@@ -207,21 +209,13 @@ void cam_init(struct cam* cam) {
 	vec3_multiply(&cam->d_width, -scale, &cam->d_width);
 	vec3_multiply(&cam->up, -scale, &cam->d_height);
 
-	// PVEC((cam->d_width));
-	// PVEC((cam->d_height));
 	struct vec3 w_offset, h_offset;
 	vec3_set(&cam->bottom_left, &cam->target);
 
 	vec3_multiply(&cam->d_width, -(cam->width/2), &w_offset);
 	vec3_multiply(&cam->d_height, -(cam->height/2-1), &h_offset);
 
-	// printf("%d %d ASDL\n", cam->width/2, cam->height/2 - 1);
-	// PVEC(w_offset);
-	// PVEC(h_offset);
-
 	ADD_TWO(&cam->bottom_left, &w_offset, &h_offset);
-	// PVEC((cam->target));
-	// PVEC((cam->bottom_left));
 }
 void cam_getRay(struct cam* cam, int width_id, int height_id, struct vec3* out) {
 	struct vec3 tmp, w_offset, h_offset;
@@ -234,7 +228,6 @@ void cam_getRay(struct cam* cam, int width_id, int height_id, struct vec3* out) 
 
 	vec3_sub(out, &cam->pos, out);
 
-	// PVEC((*out));
 
 
 }
@@ -335,9 +328,6 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 				cos_t = -cos_t;
 				inside = 1;
 			}
-			// if (inside) printf("hi\n");
-			// if (!inside) printf(":(\n");
-			// if (!inside) printf("cos sin ior %lf %lf %lf\n",cos_t,sin_t,ior);
 
 			// schlick from ray tracing in a weekend
 			double r0 = (1-ior) / (1+ior);
@@ -346,13 +336,9 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 
 			if (ior * sin_t <= 1.0 || r1 > RAND()) {
 				// refract
-				// printf("cos sin ior %lf %lf %lf\n",cos_t,sin_t,ior);
 
 				struct vec3 r_perp;
 				vec3_multiply(&normal,-cos_t,&r_perp);
-				// vec3_add(&r_perp,&direction,&r_perp);
-				// vec3_add(&r_perp, &normal, &r_perp);
-				// vec3_sub(&r_perp, &direction, &r_perp);
 				vec3_sub(&r_perp, &normal, &r_perp);
 
 				vec3_multiply(&r_perp,ior,&r_perp);
@@ -366,10 +352,8 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 
 			} else {
 				// reflect
-				// printf("hi\n");
 				struct vec3 backwards;
 				if (inside) {
-					// flip normal bc its inside
 					vec3_multiply(&normal, vec3_dot(&normal, &direction) * 2, &backwards);
 				} else {
 					vec3_multiply(&normal, -vec3_dot(&normal, &direction) * 2, &backwards);
@@ -377,7 +361,6 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 				}
 				vec3_sub(&direction, &backwards, &new_direction);
 			}
-
 		}
 
 		if (bounces > 4) {
@@ -387,7 +370,6 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 
 			vec3_multiply(&attenuation, 1/p, &attenuation);
 		}
-
 
 		vec3_set(&position, &hit_point);
 		vec3_set(&direction, &new_direction);
@@ -408,7 +390,7 @@ void gamma_correct(struct vec3* px, double degree) {
 void render(struct cam* cam, int samples, struct Sphere* spheres, 
 				size_t sphere_count, struct vec3** image) {
 
-	// develop the camera stuff?
+	// develop the camera stuff
 	
 	cam_init(cam);
 
@@ -429,7 +411,7 @@ void render(struct cam* cam, int samples, struct Sphere* spheres,
 
 				ADD_TWO(&vec, &w_rand, &h_rand);
 				vec3_normalize(&vec,&vec);
-				double t;
+
 				struct vec3 col = (struct vec3) {0,0,0};
 				trace(spheres, sphere_count, cam->pos, vec, &col, background);
 				vec3_add(&IMG_PIX(height_id, width_id), &col, &IMG_PIX(height_id, width_id));
@@ -441,9 +423,6 @@ void render(struct cam* cam, int samples, struct Sphere* spheres,
 
 	}
 }
-// go through seen
-#define IMG_WIDTH 600
-#define IMG_HEIGHT 400
 
 void viewport_render(struct cam* cam, int samples, struct Sphere* spheres,
 					 	size_t sphere_count, struct vec3** image) {
@@ -472,7 +451,6 @@ void viewport_render(struct cam* cam, int samples, struct Sphere* spheres,
 			for (int i = 0; i < sphere_count; i++) {
 				double tt;
 				if (sphere_intersect(&spheres[i], &cam->pos, &vec, &tt)) {
-					// printf("hit %lf %lf\n", tt,t);
 					if (tt < t && tt > NEAR_CLIP) {
 						t = tt;
 						hit = &spheres[i];
@@ -498,20 +476,6 @@ int main() {
 	srand(0);
 	struct vec3 pos, target, up;
 
-	// FILE* f = fopen("vectors.txt","w");
-
-	// // struct vec3 uwu = {.x=0,.y=0,.z=1};
-	// // for (int i=0;i<400;i++) {
-	// // 	struct vec3 aiyo;
-	// // 	// vec3_random_sphere(&aiyo);
-	// // 	vec3_random_sphere2(RAND(), RAND(), &aiyo);
-	// // 	vec3_normalize(&aiyo,&aiyo);
-	// // 	vec3_add(&aiyo,&uwu,&aiyo);
-	// // 	fprintf(f,"[0,0,0,%lf,%lf,%lf],",aiyo.x,aiyo.y,aiyo.z);		
-	// // }
-	// // fflush(f);
-
-	// // exit(0);
 	pos = (struct vec3) {0, 0, 0};
 	target = (struct vec3) {1, 0, 0};
 	up = (struct vec3) {0, 0, 1};
@@ -626,15 +590,15 @@ int main() {
 		(struct Sphere) {.pos = (struct vec3) {7,3,-1},
 						 .r = 1.5,
 						 .emit = zero,
-						 .alb = (struct vec3) {.8, .8, .8},
+						 .alb = (struct vec3) {.2, .8, .2},
 						 .type = 2,
 						 .ior = 1.5,
 						 .vp = zero}
 	};
 //*/
-	render(&cam, 2000, spheres, 8, &IMAGE);
+	render(&cam, 5000, spheres, 8, &IMAGE);
 
-	FILE *out = fopen("transmission??.ppm", "w");
+	FILE *out = fopen("letsgo2.ppm", "w");
 	fprintf(out, "P3 %d %d 255\n",cam.width, cam.height);
 	for (int height_id = 0; height_id < cam.height; height_id++) 
 		for (int width_id = 0; width_id < cam.width; width_id++) {
