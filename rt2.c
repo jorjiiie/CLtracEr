@@ -14,8 +14,8 @@
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define ABS(a) ((a) < 0 ? (-a) : (a))
-#define IMG_WIDTH 32
-#define IMG_HEIGHT 16
+#define IMG_WIDTH 16
+#define IMG_HEIGHT 2
 
 /*
 	todo:
@@ -187,6 +187,7 @@ int sphere_intersect(struct Sphere* sphere, struct vec3* position,
 	double t1 = front + back;
 	double t2 = front - back;
 
+	//printf("%lf %lf %lf %lf\n", t1,t2, front, back);
 	double mx = MAX(t1,t2);
 
 	if (mx <= NEAR_CLIP) 
@@ -262,23 +263,22 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 	col = (struct vec3) {0,0,0};
 
 	int bounces;
-	for (bounces = 0; bounces < 15; bounces++) {
+	for (bounces = 0; bounces < 2; bounces++) {
 
 		double t = FAR_CLIP;
 		struct Sphere* hit = NULL;
+		int hit_id = 0;
 		for (int i = 0; i < sphere_count; i++) {
 			double tt;
 			if (sphere_intersect(&spheres[i], &position, &direction, &tt)) {
-				printf("bounce %d: %lf = t sphere:  %d\n", bounces, tt, i);
-				PVEC(direction);
-				return;
 				if (tt < t && tt > NEAR_CLIP) {
 					t = tt;
 					hit = &spheres[i];
+					hit_id = i;
 				}
 			}
 		}
-		return;
+		
 
 		if (hit==NULL) {
 			// background * attenuation
@@ -315,7 +315,6 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 			vec3_multiply(&normal, -1, &normal);
 			cost = -cost;
 		}
-
 
 		if (hit->type == 0) {
 			// for lambertian brdf/pdf = 1/pi apparently i dont know why
@@ -396,6 +395,7 @@ void trace(struct Sphere* spheres, size_t sphere_count, struct vec3 position,
 		vec3_set(&position, &hit_point);
 		vec3_set(&direction, &new_direction);
 		vec3_normalize(&direction,&direction);
+		printf("%d sphere %d %lf direc %lf %lf %lf\n",bounces, hit_id, t,normal.x, normal.y, normal.z);
 
 	}
 	total_bounces += bounces;
@@ -442,9 +442,10 @@ void render(struct cam* cam, int samples, struct Sphere* spheres,
 
 				cam_getRay(cam, width_id, height_id, &vec);
 
-				ADD_TWO(&vec, &w_rand, &h_rand);
+				// ADD_TWO(&vec, &w_rand, &h_rand);
 				vec3_normalize(&vec,&vec);
 
+				//printf("%d %d: %lf %lf %lf\n", width_id, height_id, vec.x, vec.y, vec.z);
 				struct vec3 col = (struct vec3) {0,0,0};
 				trace(spheres, sphere_count, cam->pos, vec, &col, background);
 				vec3_add(&IMG_PIX(height_id, width_id), &col, &IMG_PIX(height_id, width_id));
@@ -638,6 +639,7 @@ int main() {
 //*/
 	render(&cam, 1, spheres, 9, &IMAGE);
 
+	exit(0);
     PVEC(cam.pos);
     PVEC(cam.target);
     PVEC(cam.direction);

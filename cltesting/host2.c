@@ -1,20 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#define __CL_ENABLE_EXCEPTIONS
 #include <OpenCL/opencl.h>
 
-#define NUM_VALUES (10000000)
+#define NUM_VALUES (1000000)
 #define MAX_SOURCE 10000 * sizeof(char)
-int validate(int* input, int* output) {
-	for (int i=0;i<NUM_VALUES;i++) {
-		if (output[i] != input[i] * input[i]) {
-			fprintf(stdout, "bad at %d: expected %d but got %d\n", i, output[i], input[i] * input[i]);
-			fflush(stdout);
-			return 0;
-		}
-	}	
-	return 1;
-}
-
+const int num_blocks = 1;
 struct joe_mama {
 	cl_float3 abc;
 };
@@ -26,7 +17,7 @@ int main() {
 	int *a = (int*) malloc(sizeof(int) * NUM_VALUES);
 
 	for (int i=0;i<NUM_VALUES;i++) {
-		a[i] = i;
+		a[i] = -1;
 	}
 
 
@@ -35,7 +26,7 @@ int main() {
 	size_t source_size;
 
 
-	kernel_source = fopen("square_kernel.cl","r");
+	kernel_source = fopen("blocking.cl","r");
 	if (!kernel_source) {
 		fprintf(stderr, "Failed to load kernel\n");
 		exit(1);
@@ -58,11 +49,9 @@ int main() {
 
 	cl_command_queue command_queue =  clCreateCommandQueue(context, device_id, 0, &ret);
 
-	cl_mem a_device = clCreateBuffer(context, CL_MEM_READ_ONLY, 
+	cl_mem a_device = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 
 							NUM_VALUES * sizeof(int), NULL, &ret);
 
-	cl_mem b_device = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 
-							NUM_VALUES * sizeof(int), NULL, &ret);
 
 	ret = clEnqueueWriteBuffer(command_queue, a_device, CL_TRUE, 0, 
 							NUM_VALUES * sizeof(int), a, 0, NULL, NULL);
@@ -74,26 +63,32 @@ int main() {
 
 	if (ret==CL_BUILD_PROGRAM_FAILURE) {
 		fprintf(stdout,"FAILED\n");
-		exit(0);
+		exit(1);
 	}
-	cl_kernel kernel = clCreateKernel(program, "square", &ret);
 
-	ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &a_device);
-	ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &b_device);
+	cl_kernel kernel = clCreateKernel(program, "block", &ret);
+	
+	int block_sz = NUM_VALUES/num_blocks;
+	int *b = (int*) malloc(sizeof(int) * NUM_VALUES);
 
-	size_t global_work_size = NUM_VALUES;
-	size_t local_work_size = 64;
-	ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
+	for (int i=0;i<num_blocks;i++) {
+		printf("hi %d\n", i);
+
+		ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &a_device);
+		ret = clSetKernelArg(kernel, 1, sizeof(int), &i);
+		ret = clSetKernelArg(kernel, 2, sizeof(int), &block_sz);
+
+		size_t global_work_size = block_sz;
+		size_t local_work_size = 4;
+		ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
 									&global_work_size, &local_work_size, 0, 
 									NULL, NULL);
 
-	int *b = (int*) malloc(sizeof(int) * NUM_VALUES);
-	ret = clEnqueueReadBuffer(command_queue, b_device, CL_TRUE, 0, NUM_VALUES * sizeof(int)
-								, b, 0, NULL, NULL);
-
-	for (int i=0;i<NUM_VALUES;i++) {
-		fprintf(stdout,"%d * %d = %d\n", a[i],i,b[i]);
+		ret = clEnqueueReadBuffer(command_queue, a_device, CL_TRUE, i*block_sz*sizeof(int), block_sz * sizeof(int)
+									, b + (i*block_sz), 0, NULL, NULL);
+		// clEnqueueReadBuffer(cmd_queue, of_buf, CL_TRUE, 0, chunk_size, b + i*block_sz, 0, NULL, NULL);
 	}
-
+	// for (int i=0;i<NUM_VALUES;i++) 
+		// fprintf(stdout, "%d: %d\n", i, b[i]);
 
 }

@@ -35,13 +35,11 @@ int main() {
 	size_t source_size;
 
 
-	kernel_source = fopen("square_kernel.cl","r");
+	kernel_source = fopen("kernel.cl","r");
 	if (!kernel_source) {
 		fprintf(stderr, "Failed to load kernel\n");
 		exit(1);
 	}
-
-	// istg if the source size is too small im gonna cry bc i'll never find the issue
 	source_str = (char*) malloc(MAX_SOURCE);
 	source_size = fread(source_str, 1, MAX_SOURCE, kernel_source);
 	fclose(kernel_source);
@@ -79,7 +77,6 @@ int main() {
 	cl_kernel kernel = clCreateKernel(program, "square", &ret);
 
 	ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &a_device);
-	ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &b_device);
 
 	size_t global_work_size = NUM_VALUES;
 	size_t local_work_size = 64;
@@ -91,9 +88,6 @@ int main() {
 	ret = clEnqueueReadBuffer(command_queue, b_device, CL_TRUE, 0, NUM_VALUES * sizeof(int)
 								, b, 0, NULL, NULL);
 
-	for (int i=0;i<NUM_VALUES;i++) {
-		fprintf(stdout,"%d * %d = %d\n", a[i],i,b[i]);
-	}
 
 
 }

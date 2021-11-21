@@ -1,0 +1,252 @@
+// OpenCL kernel
+
+__constant float EPSILON = 0.00003f; 
+__constant float PI = 3.14159265359f;
+__constant int SAMPLES = 1<<10;
+__constant float NEAR_CLIP = 0.0001;
+__constant float FAR_CLIP = 10000000;
+__constant float IPI = 0.31830988618f;
+#define CLAMP(a,mn,mx) (((a) > (mx)) ? (mx) : ((a) < (mn) ? (mn) : (a)))
+#define MAX(a,b) ((a) < (b) ? (b) : (a))
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define ABS(a) ((a) < 0 ? (-a) : (a))
+// for triangles and stuff maybe throw it in through a big struct that has the arrays or smth
+// memory hog though
+// opencl does kinda suck
+typedef struct {
+    // sphere data
+    float3 pos;
+    float r
+} Sphere;
+typedef struct {
+    // 0 = lamb, 1 = glossy, 2 = refractive
+    float3 alb, emit;
+    int type;
+    float ior;
+} Shader;
+
+void halton(int n, double* w_fac, double* h_fac) {
+    double halt_num_1d = 0;
+    double base_exp_1d = 0.5;
+    int n2 = n;
+    while (n) {
+        halt_num_1d += base_exp_1d * (n % 2);
+        base_exp_1d/=2.0;
+        n>>=1;
+    }
+
+    double halt_num_2d = 0;
+    double base_exp_2d = 1.0/3;
+    while(n2) {
+        halt_num_2d += base_exp_2d * (n2%3);
+        base_exp_2d/=3;
+        n2/=3;
+    }
+    *w_fac = halt_num_1d;
+    *h_fac = halt_num_2d;
+}
+inline float random(ulong *seed0, ulong *seed1) {
+    // pcg32
+    ulong oldstate = *seed0;
+    *seed0 = oldstate * 6364136223846793005ULL + (*seed1|1);
+
+    uint xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+    uint rot = oldstate >> 59u;
+    return ((xorshifted >> rot) | (xorshifted << ((-rot) & 31))) * 1.0 / (4294967295u); 
+}
+
+float3 sphere_random(float u1, float u2) {
+    // this is technically wrong but looks pretty close + converges faster
+    float r = sqrt((float) (1-(u1*u1)));
+    float theta = 2 * PI * u2;
+    return (float3) (r * cos(theta), r * sin(theta), sqrt(MAX(0.0,u1)));
+}
+int sphere_intersect(__constant Sphere *sphere, float3 pos, float3 direc, float *t) {
+    float3 ray = pos - sphere->pos;
+
+    float front = - dot(direc, ray);
+    float inside = front * front - (dot(ray,ray) - sphere->r * sphere->r);
+
+    if (inside < 0.0) 
+        return 0;
+    
+
+    float back = sqrt(inside);
+    float t1 = front - back;
+    float t2 = front + back;
+
+    // t2 > t1 always
+    //printf("%f %f %f %f\n", t2, t1, front, back);
+    if (t2 <= NEAR_CLIP) 
+        return 0;
+
+    if (t1 <= NEAR_CLIP)
+        *t = t2;
+    else 
+        *t = t1;
+    return 69;
+
+}
+float sphere_intersect2(Sphere *sphere, float3 pos, float3 direc) {
+    float3 ray = pos-(sphere->pos);
+    float front = - dot(direc, ray);
+    float inside = front * front - (dot(ray,ray) - (sphere->r * sphere->r));
+    if (inside < 0) 
+        return -1.0;
+    
+    float back = sqrt(inside);
+    float t1 = front - back;
+    float t2 = front + back;
+
+    // t2 > t1 always
+    if (t2 <= NEAR_CLIP) 
+        return -1.0;
+
+    if (t1 <= NEAR_CLIP)
+        return t2;
+    else 
+        return t1;
+
+}
+float3 sphere_normal(Sphere sphere, float3 point) {
+    return (float3) (point - sphere.pos);
+}
+float3 get_cam_ray(int width_id, int height_id, float3 bottom_left,
+                     float3 d_up, float3 d_width) {
+    return (float3) (bottom_left + height_id * d_up + width_id * d_width);
+}
+
+float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_spheres, float3 pos, float3 direction,
+            ulong *seed0, ulong *seed1) {
+    float3 color = (float3) (0.0f, 0.0f, 0.0f);
+    float3 attenuation = (float3) (1.0f, 1.0f, 1.0f);
+
+    // 10 max bounces, after 4 = RR
+    for (int bounces=0; bounces<10; bounces++) {
+        float min_t = FAR_CLIP;
+        Sphere hit;
+        int hit_id = -1;
+        for (int i=0; i<num_spheres; i++) {
+            float t;
+            if (sphere_intersect(&spheres[i],pos,direction, &t)) {
+
+                if (t <= min_t && t >= NEAR_CLIP) {
+                    min_t = t;
+                    hit = spheres[i];
+                    hit_id = i;
+                }
+                //return attenuation;
+            }
+        }
+
+        //printf("%d: %f %f %f\n", hit_id, shaders[hit_id].alb.x,shaders[hit_id].alb.y,shaders[hit_id].alb.z);
+        // grey background... could have a picture but that's for nerds
+        if (hit_id == -1) {
+            color += attenuation * (float3) (0.6f, 0.6f, 0.6f);
+            break;
+        }
+       
+        // light + attenuation
+        color += (attenuation * shaders[hit_id].emit);
+        attenuation *= shaders[hit_id].alb;
+        //printf("current attenu = %f %f %f\n", attenuation.x, attenuation.y, attenuation.z);
+        float3 hit_point = pos + (direction * min_t);
+        float3 normal = normalize(sphere_normal(hit,hit_point));
+
+        double cos_t = dot(direction, normal);
+ 
+        if (shaders[hit_id].type == 0) {
+            // diffuse
+            if (cos_t > 0) 
+                normal = -normal;
+
+            // get the random ray
+            direction = sphere_random(random(seed0,seed1), random(seed0,seed1));
+
+            // i still dont know why this is try but oh well
+            attenuation *= IPI;
+            direction = normalize(direction) + normal;
+        } else if (shaders[hit_id].type == 1) {
+            //glossy
+            continue;
+        } else {
+            continue;
+        }
+        direction = normalize(direction);
+        pos = hit_point;
+        //printf("%d sphere %d %f at %f %f %f \n", bounces, hit_id, min_t, direction.x, direction.y, direction.z);
+        if (bounces > 4) {
+            float prob = MAX(attenuation.x, MAX(attenuation.y, attenuation.z));
+            if (random(seed0,seed1) > prob) {
+                break;
+            }
+            attenuation *= (1.0f/prob);
+        }
+    }
+    return color;
+
+}
+// LOL avoiding cam struct uwu
+// main thing is bc there's only 1
+///*
+
+__kernel void render(__constant Sphere* spheres, __constant Shader* shaders, const int num_spheres,
+                    const int width, const int height, const float fov, const float3 pos, 
+                    const float3 target, const float3 d_up, const float3 d_width, 
+                    const float3 bottom_left, __global float3* output, const int samples) {
+    int pix_num = get_global_id(0);
+    int x_coord = pix_num % width;
+    int y_coord = pix_num / width;
+
+    ulong seed0 = x_coord + 69;
+    ulong seed1 = y_coord + 4220;
+    float3 accum = (float3) (0.0f, 0.0f, 0.0f);
+
+    random(&seed0, &seed1);
+    random(&seed0, &seed1);
+    //for (int i=0;i<9;i++) {
+    //    printf("shader %d has alb %f %f %f and emit %f %f %f with type %d\n",i,shaders[i].alb.x,shaders[i].alb.y,shaders[i].alb.z,shaders[i].emit.x,shaders[i].emit.y,shaders[i].emit.z,shaders[i].type);
+    //}
+
+    for (int i=0;i<samples;i++) {
+        float wfac, hfac;
+        halton(i,&wfac,&hfac);
+
+        float3 cam_ray = normalize(get_cam_ray(x_coord, y_coord, bottom_left,
+                                    d_up, d_width) - pos + d_width * wfac + d_up * hfac);
+        accum += trace(spheres, shaders, num_spheres, pos, cam_ray, &seed0, &seed1);
+        //printf("%d: %d %d: %f %f %f \n", pix_num, x_coord, y_coord, cam_ray.x, cam_ray.y, cam_ray.z);
+        //printf("%f %f %f\n", pos.x, pos.y, pos.z);
+        //accum += (float3) (.75f, .75f, .75f);
+    }
+    // for now we will gamma correct here and divide and yada
+    //printf("accum: %f %f %f\n",accum.x, accum.y, accum.z);
+    output[pix_num] = sqrt(accum/samples);
+    return;
+}
+/*
+*/
+__kernel void testg(
+    __constant int* input,
+    __global float* output) 
+{
+    int i = get_global_id(0);
+    //printf("hi %f %f %f\n", joe.x, joe.y, joe.z);
+    //printf("aj\n");n
+    output[i] = input[i] * input[i];
+    printf("hi\n");
+    return;
+    ulong a=69420,b=0;
+    for (int i=0;i<20;i++) {
+        printf("%f\n", random(&a,&b));
+    }
+
+    Sphere joe = (Sphere) {.r = 5, .pos = (float3) (10.0f, 1.0f, 1.0f)};
+    float3 pos = (float3) (0.0f, 0.0f, 0.0f);
+    float3 direc = (float3) (1.0f, 0.0f, 0.0f);
+    float t = sphere_intersect2(&joe,pos,direc);
+    //return;
+    output[i] = t;
+
+
+}
