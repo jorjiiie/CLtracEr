@@ -3,7 +3,7 @@
 __constant float EPSILON = 0.00003f; 
 __constant float PI = 3.14159265359f;
 __constant int SAMPLES = 1<<10;
-__constant float NEAR_CLIP = 0.0001;
+__constant float NEAR_CLIP = 0.00003;
 __constant float FAR_CLIP = 10000000;
 __constant float IPI = 0.31830988618f;
 #define CLAMP(a,mn,mx) (((a) > (mx)) ? (mx) : ((a) < (mn) ? (mn) : (a)))
@@ -13,10 +13,11 @@ __constant float IPI = 0.31830988618f;
 // for triangles and stuff maybe throw it in through a big struct that has the arrays or smth
 // memory hog though
 // opencl does kinda suck
+
 typedef struct {
     // sphere data
     float3 pos;
-    float r
+    float r;
 } Sphere;
 typedef struct {
     // 0 = lamb, 1 = glossy, 2 = refractive
@@ -25,9 +26,9 @@ typedef struct {
     float ior;
 } Shader;
 
-void halton(int n, double* w_fac, double* h_fac) {
-    double halt_num_1d = 0;
-    double base_exp_1d = 0.5;
+inline void halton(int n, float* w_fac, float* h_fac) {
+    float halt_num_1d = 0;
+    float base_exp_1d = 0.5;
     int n2 = n;
     while (n) {
         halt_num_1d += base_exp_1d * (n % 2);
@@ -35,8 +36,8 @@ void halton(int n, double* w_fac, double* h_fac) {
         n>>=1;
     }
 
-    double halt_num_2d = 0;
-    double base_exp_2d = 1.0/3;
+    float halt_num_2d = 0;
+    float base_exp_2d = 1.0/3;
     while(n2) {
         halt_num_2d += base_exp_2d * (n2%3);
         base_exp_2d/=3;
@@ -52,7 +53,7 @@ inline float random(ulong *seed0, ulong *seed1) {
 
     uint xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
     uint rot = oldstate >> 59u;
-    return ((xorshifted >> rot) | (xorshifted << ((-rot) & 31))) * 1.0 / (4294967295u); 
+    return ((xorshifted >> rot) | (xorshifted << ((-rot) & 31))) * 1.0f / (4294967295u); 
 }
 
 float3 sphere_random(float u1, float u2) {
@@ -122,7 +123,7 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
     float3 attenuation = (float3) (1.0f, 1.0f, 1.0f);
 
     // 10 max bounces, after 4 = RR
-    for (int bounces=0; bounces<10; bounces++) {
+    for (int bounces=0; bounces<15; bounces++) {
         float min_t = FAR_CLIP;
         Sphere hit;
         int hit_id = -1;
@@ -139,7 +140,6 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
             }
         }
 
-        //printf("%d: %f %f %f\n", hit_id, shaders[hit_id].alb.x,shaders[hit_id].alb.y,shaders[hit_id].alb.z);
         // grey background... could have a picture but that's for nerds
         if (hit_id == -1) {
             color += attenuation * (float3) (0.6f, 0.6f, 0.6f);
@@ -149,12 +149,10 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
         // light + attenuation
         color += (attenuation * shaders[hit_id].emit);
         attenuation *= shaders[hit_id].alb;
-        //printf("current attenu = %f %f %f\n", attenuation.x, attenuation.y, attenuation.z);
+
         float3 hit_point = pos + (direction * min_t);
         float3 normal = normalize(sphere_normal(hit,hit_point));
-
-        double cos_t = dot(direction, normal);
- 
+        float cos_t = dot(direction, normal);
         if (shaders[hit_id].type == 0) {
             // diffuse
             if (cos_t > 0) 
@@ -167,22 +165,61 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
             attenuation *= IPI;
             direction = normalize(direction) + normal;
         } else if (shaders[hit_id].type == 1) {
-            //glossy
-            continue;
-        } else {
-            continue;
+            // glossy
+            if (cos_t > 0)
+                normal = -normal;
+
+            direction = (direction - (normal * dot(normal, direction) * 2));
+
+        } else if (shaders[hit_id].type==2){
+            // transmissive
+            float ior = shaders[hit_id].ior;
+            int inside = 0;
+            if (cos_t < 0) {
+                ior = 1.0/ior;
+            } else {
+                inside = 1;
+                normal = -normal;
+                cos_t = -cos_t;
+            }
+            float sin_t = sqrt(1.0-cos_t*cos_t);
+
+            float r0 = (1-ior) / (1+ior);
+            r0 = r0*r0;
+            float r1 = r0 + (1+r0)*pow((1-cos_t),5);
+           // printf("cos: %f sin: %f ior:%f\n",cos_t,sin_t, ior);
+            if (ior*sin_t <= 1.0 || r1 > random(seed0, seed1)) {
+                float3 r_perp = normal * cos_t - normal;
+                r_perp = r_perp * ior;
+
+                float3 r_par;
+
+                float inside = 1.0 - dot(r_perp,r_perp);
+                r_par = normal * -(sqrt(ABS(inside)));
+
+                direction = r_par + r_perp;
+            } else {
+                if (inside)
+                    direction = (direction - (normal * dot(normal, direction) * 2));
+                else 
+                     direction = (direction + (normal * dot(normal, direction) * 2));
+            }
+    
+
         }
         direction = normalize(direction);
-        pos = hit_point;
+        // this fixes the bad float stuff I think
+        pos = hit_point + (normal * 0.01);
         //printf("%d sphere %d %f at %f %f %f \n", bounces, hit_id, min_t, direction.x, direction.y, direction.z);
         if (bounces > 4) {
             float prob = MAX(attenuation.x, MAX(attenuation.y, attenuation.z));
             if (random(seed0,seed1) > prob) {
                 break;
             }
-            attenuation *= (1.0f/prob);
+            attenuation = attenuation/prob;
         }
     }
+
     return color;
 
 }
@@ -204,20 +241,14 @@ __kernel void render(__constant Sphere* spheres, __constant Shader* shaders, con
 
     random(&seed0, &seed1);
     random(&seed0, &seed1);
-    //for (int i=0;i<9;i++) {
-    //    printf("shader %d has alb %f %f %f and emit %f %f %f with type %d\n",i,shaders[i].alb.x,shaders[i].alb.y,shaders[i].alb.z,shaders[i].emit.x,shaders[i].emit.y,shaders[i].emit.z,shaders[i].type);
-    //}
 
     for (int i=0;i<samples;i++) {
         float wfac, hfac;
         halton(i,&wfac,&hfac);
-
         float3 cam_ray = normalize(get_cam_ray(x_coord, y_coord, bottom_left,
                                     d_up, d_width) - pos + d_width * wfac + d_up * hfac);
         accum += trace(spheres, shaders, num_spheres, pos, cam_ray, &seed0, &seed1);
-        //printf("%d: %d %d: %f %f %f \n", pix_num, x_coord, y_coord, cam_ray.x, cam_ray.y, cam_ray.z);
-        //printf("%f %f %f\n", pos.x, pos.y, pos.z);
-        //accum += (float3) (.75f, .75f, .75f);
+
     }
     // for now we will gamma correct here and divide and yada
     //printf("accum: %f %f %f\n",accum.x, accum.y, accum.z);

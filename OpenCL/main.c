@@ -26,10 +26,10 @@
 #define MAX_SOURCE 10000 * sizeof(char)
 #define NUM_VALUES (1<<0)
 
-const int IMG_WIDTH = 500;
-const int IMG_HEIGHT = 400;
+const int IMG_WIDTH = 300;
+const int IMG_HEIGHT = 200;
 
-const int SAMPLES = 1<<13;
+const int SAMPLES = 1<<10;
 const int NUM_BLOCKS = 1<<2;
 const int BLOCK_SZ = SAMPLES/NUM_BLOCKS;
 
@@ -97,34 +97,32 @@ void init_scene() {
     Shader shaders1[9] = {
         (Shader) {.alb = (cl_float3) {0.1f, 0.1f, 0.7f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
-                  .type = 0,
-                  .ior = 0.0f,
-                  .d2 = 0.0f,
-                  .d3 = 0.0f},
-        (Shader) {.alb = (cl_float3) {0.7f, 0.1f, 0.7f},
-                  .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
                   .type = 0},
         (Shader) {.alb = (cl_float3) {0.7f, 0.1f, 0.1f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
                   .type = 0},
-        (Shader) {.alb = (cl_float3) {0.7f, 0.8f, 0.2f},
+        (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
                   .type = 0},
-        (Shader) {.alb = (cl_float3) {0.4f, 0.7f, 0.7f},
+        (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
                   .type = 0},
-        (Shader) {.alb = (cl_float3) {0.1f, 0.1f, 0.7f},
+        (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
+                  .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
+                  .type = 0},
+        (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
                   .emit = (cl_float3) {35.0f, 35.0f, 35.0f},
                   .type = 0},
-        (Shader) {.alb = (cl_float3) {0.7f, 0.2f, 0.7f},
+        (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
                   .type = 0},
         (Shader) {.alb = (cl_float3) {0.2f, 0.8f, 0.2f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
-                  .type = 0},
-        (Shader) {.alb = (cl_float3) {0.7f, 0.6f, 0.7f},
+                  .type = 2,
+                  .ior = 1.5},
+        (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
-                  .type = 0},
+                  .type = 1},
     };
     for (int i=0;i<9;i++) {
         spheres[i]=spheres1[i];
