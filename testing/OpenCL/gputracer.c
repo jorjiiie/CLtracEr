@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+#include <GLFW/glfw3.h>
 
-#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_TARGET_OPENCL_VERSION 120
 #define __CL_ENABLE_EXCEPTIONS
 
 #ifdef __APPLE__
@@ -29,11 +31,11 @@
 const int IMG_WIDTH = 300;
 const int IMG_HEIGHT = 200;
 
-const int SAMPLES = 1<<10;
+const int SAMPLES = 50000;
 const int NUM_BLOCKS = 1<<2;
 const int BLOCK_SZ = SAMPLES/NUM_BLOCKS;
 
-// padded to 8 bytes
+// padded to 32 bytes
 typedef struct {
     cl_float3 pos;
     cl_float r;
@@ -41,13 +43,14 @@ typedef struct {
     cl_float d2;
     cl_float d3;
 } Sphere;
-// padded to 16 bytes
+// padded to 64 bytes
 typedef struct {
     cl_float3 alb, emit;
     cl_int type;
     cl_float ior;
     cl_float d2;
     cl_float d3;
+    // apparently adding this corrupts memory so i'm not doing it :sunglasses:
     // cl_float3 d1;
 } Shader;
 typedef struct {
@@ -170,6 +173,12 @@ void init_scene() {
 }
 int main() {
 
+    GLFWwindow* window;
+    if (!glfwInit()) {
+        printf("bad\n");
+        return 1;
+    }
+
     init_scene();
 
     FILE *kernel_source;
@@ -226,9 +235,14 @@ int main() {
     cl_mem shader_device = clCreateBuffer(context, CL_MEM_READ_ONLY,
                             num_spheres * sizeof(Shader), NULL, &ret);
     printf("%d\n",ret);
-    cl_mem output_img = clCreateBuffer(context, CL_MEM_READ_ONLY,
+    cl_mem output_img = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
                             IMG_WIDTH * IMG_HEIGHT * sizeof(cl_float3), NULL, &ret);
-printf("%d\n",ret);
+    printf("%d\n",ret);
+
+    cl_mem img_buffer = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
+                            IMG_WIDTH * IMG_HEIGHT * sizeof(unsigned char) * 3, NULL, &ret);
+    printf("%d\n",ret);
+
     ret = clEnqueueWriteBuffer(command_queue, sphere_device, CL_TRUE, 0,
                             num_spheres * sizeof(Sphere), &spheres, 0, NULL, NULL);
      printf("%d\n",ret);
@@ -236,7 +250,7 @@ printf("%d\n",ret);
                             num_spheres * sizeof(Shader), &shaders, 0, NULL, NULL);
      printf("%d\n",ret);
 
-    cl_kernel kernel = clCreateKernel(program, "render", &ret);
+    cl_kernel kernel = clCreateKernel(program, "progressive_refine", &ret);
      printf("%d\n",ret);
 
     ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &sphere_device);
@@ -274,29 +288,31 @@ printf("%d\n",ret);
     ret = clSetKernelArg(kernel, 11, sizeof(cl_mem), &output_img);
         printf("%d\n",ret);
 
-    ret = clSetKernelArg(kernel, 12, sizeof(int), &SAMPLES);
-        printf("%d\n",ret);
+    ret = clSetKernelArg(kernel, 12, sizeof(cl_mem), &img_buffer);
+        printf("%d\n", ret);
+
+    cl_event* event;
+
+    for (int current_sample = 0; current_sample < SAMPLES; current_sample++) {
+        ret = clSetKernelArg(kernel, 13, sizeof(int), &current_sample);
+            printf("%d\n",ret);
+
+        size_t global_work_size = IMG_WIDTH * IMG_HEIGHT;
+        size_t local_work_size = 16;
+
+        ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
+                                &global_work_size, &local_work_size, 0, 
+                                NULL, event);
+        clWaitForEvents(1,event);
+        printf("%d hi sample# %d\n",ret,current_sample);
+    }
+
+    
+    unsigned char* final_img = (unsigned char*) malloc(IMG_HEIGHT*IMG_WIDTH*sizeof(unsigned char) * 3);
 
 
-    // just do k * 2^n for img width and height LOL 
-    // like base of 32 or something 
-    // 8 is fine too
-    // so 4:3 is 32*4n : 32:3n
-    // LMFAO
-    size_t global_work_size = IMG_WIDTH * IMG_HEIGHT;
-    size_t local_work_size = 16;
-
-    ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
-                                    &global_work_size, &local_work_size, 0, 
-                                    NULL, NULL);
-
-        printf("%d\n",ret);
-
-
-    cl_float3 *img = (cl_float3*) malloc(IMG_HEIGHT*IMG_WIDTH*sizeof(cl_float3));
-
-    ret = clEnqueueReadBuffer(command_queue, output_img, CL_TRUE, 0, IMG_WIDTH * IMG_HEIGHT * sizeof(cl_float3),
-                                img, 0, NULL, NULL);
+    ret = clEnqueueReadBuffer(command_queue, img_buffer, CL_TRUE, 0, IMG_WIDTH * IMG_HEIGHT * sizeof(unsigned char) * 3,
+                                final_img, 0, NULL, NULL);
         printf("%d\n",ret);
 
     // fprintf(stdout, "hi %f %f %f %d %d\n",img[0].x, img[0].y, img[0].z, IMG_WIDTH, IMG_HEIGHT);
@@ -306,11 +322,13 @@ printf("%d\n",ret);
     fprintf(out, "P3 %d %d 255\n",cam.width, cam.height);
     for (int height_id = 0; height_id < cam.height; height_id++) 
         for (int width_id = 0; width_id < cam.width; width_id++) {
-            fprintf(out, "%d %d %d\n", (int) (CLAMP(img[width_id + height_id * cam.width].x,0,1) * 255),   
-                            (int) (CLAMP(img[width_id + height_id * cam.width].y,0,1) * 255),   
-                            (int) (CLAMP(img[width_id + height_id * cam.width].z,0,1) * 255));
+            fprintf(out, "%d %d %d\n",  final_img[height_id * IMG_WIDTH * 3 + width_id * 3 + 0],
+                                        final_img[height_id * IMG_WIDTH * 3 + width_id * 3 + 1],
+                                        final_img[height_id * IMG_WIDTH * 3 + width_id * 3 + 2]);
                         
         }
+
+
     /*
 
 

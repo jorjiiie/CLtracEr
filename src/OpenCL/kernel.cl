@@ -112,13 +112,23 @@ float sphere_intersect2(Sphere *sphere, float3 pos, float3 direc) {
 float3 sphere_normal(Sphere sphere, float3 point) {
     return (float3) (point - sphere.pos);
 }
-float3 get_cam_ray(int width_id, int height_id, float3 bottom_left,
-                     float3 d_up, float3 d_width) {
+float3 get_cam_ray(int width_id, 
+                int height_id, 
+                float3 bottom_left,
+                float3 d_up, 
+                float3 d_width) {
+
     return (float3) (bottom_left + height_id * d_up + width_id * d_width);
 }
 
-float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_spheres, float3 pos, float3 direction,
-            ulong *seed0, ulong *seed1) {
+float3 trace(__constant Sphere* spheres, 
+            __constant Shader* shaders, 
+            int num_spheres, 
+            float3 pos, 
+            float3 direction,
+            ulong *seed0, 
+            ulong *seed1) {
+
     float3 color = (float3) (0.0f, 0.0f, 0.0f);
     float3 attenuation = (float3) (1.0f, 1.0f, 1.0f);
 
@@ -153,6 +163,8 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
         float3 hit_point = pos + (direction * min_t);
         float3 normal = normalize(sphere_normal(hit,hit_point));
         float cos_t = dot(direction, normal);
+
+        // shaders switch
         if (shaders[hit_id].type == 0) {
             // diffuse
             if (cos_t > 0) 
@@ -176,6 +188,7 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
             float ior = shaders[hit_id].ior;
             int inside = 0;
             if (cos_t < 0) {
+                // the right way
                 ior = 1.0/ior;
             } else {
                 inside = 1;
@@ -189,20 +202,17 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
             float r1 = r0 + (1+r0)*pow((1-cos_t),5);
            // printf("cos: %f sin: %f ior:%f\n",cos_t,sin_t, ior);
             if (ior*sin_t <= 1.0 || r1 > random(seed0, seed1)) {
-                float3 r_perp = normal * cos_t - normal;
-                r_perp = r_perp * ior;
+                float sin_t1 = ior * sin_t;
+                float cos_t1 = sqrt(1-sin_t1*sin_t1);
+                //printf("%f\n",sin_t1);
+                float3 r_par = cos_t1 * (normal);
 
-                float3 r_par;
-
-                float inside = 1.0 - dot(r_perp,r_perp);
-                r_par = normal * -(sqrt(ABS(inside)));
-
+                float3 r_perp = sin_t1 * normalize(direction - (-cos_t * normal));
+               // printf("inside new direction = %f %f %f\n ", direction.x, direction.y, direction.z);
                 direction = r_par + r_perp;
             } else {
-                if (inside)
-                    direction = (direction - (normal * dot(normal, direction) * 2));
-                else 
-                     direction = (direction + (normal * dot(normal, direction) * 2));
+                normal = -normal;
+                direction = (direction + (normal * dot(normal, direction) * 2));
             }
     
 
@@ -223,61 +233,58 @@ float3 trace(__constant Sphere* spheres, __constant Shader* shaders, int num_sph
     return color;
 
 }
-// LOL avoiding cam struct uwu
-// main thing is bc there's only 1
-///*
+// second progressive refine thingie
+// img is gamma corrected averaged, output is just raw data
+__kernel void progressive_refine(__constant Sphere* spheres, 
+                                __constant Shader* shaders, 
+                                const int num_spheres,
+                                const int width, 
+                                const int height, 
+                                const float fov, 
+                                const float3 pos, 
+                                const float3 target, 
+                                const float3 d_up, 
+                                const float3 d_width, 
+                                const float3 bottom_left, 
+                                __global float3* output, 
+                                __global unsigned char* img, 
+                                int sample) {
 
-__kernel void render(__constant Sphere* spheres, __constant Shader* shaders, const int num_spheres,
-                    const int width, const int height, const float fov, const float3 pos, 
-                    const float3 target, const float3 d_up, const float3 d_width, 
-                    const float3 bottom_left, __global float3* output, const int samples) {
     int pix_num = get_global_id(0);
     int x_coord = pix_num % width;
     int y_coord = pix_num / width;
 
-    ulong seed0 = x_coord + 69;
-    ulong seed1 = y_coord + 4220;
+    // random seeding
+    ulong seed0 = x_coord + 69 + sample * 4220;
+    ulong seed1 = y_coord + 4220 + sample * 69420;
     float3 accum = (float3) (0.0f, 0.0f, 0.0f);
 
     random(&seed0, &seed1);
     random(&seed0, &seed1);
 
-    for (int i=0;i<samples;i++) {
-        float wfac, hfac;
-        halton(i,&wfac,&hfac);
-        float3 cam_ray = normalize(get_cam_ray(x_coord, y_coord, bottom_left,
-                                    d_up, d_width) - pos + d_width * wfac + d_up * hfac);
-        accum += trace(spheres, shaders, num_spheres, pos, cam_ray, &seed0, &seed1);
+    float wfac, hfac;
+    halton(sample,&wfac,&hfac);
+    float3 cam_ray = normalize(get_cam_ray(x_coord, y_coord, bottom_left,
+                                d_up, d_width) - pos + d_width * wfac + d_up * hfac);
 
+    if (sample==0) {
+        output[pix_num] = (float3) (0.0f, 0.0f, 0.0f);
     }
-    // for now we will gamma correct here and divide and yada
-    //printf("accum: %f %f %f\n",accum.x, accum.y, accum.z);
-    output[pix_num] = sqrt(accum/samples);
+    output[pix_num] += trace(spheres, shaders, num_spheres, pos, cam_ray, &seed0, &seed1);
+    
+    float r,g,b;
+    r = sqrt(output[pix_num].x/(sample+1));
+    g = sqrt(output[pix_num].y/(sample+1));
+    b = sqrt(output[pix_num].z/(sample+1));
+
+
+    // to flip, it's height - (current_height + 1) * 3 + width * 3
+    // inside down bc opengl is awk
+    int real_pix_num = ((height - 1 - y_coord) * width + x_coord) * 3;
+    img[real_pix_num    ] = (unsigned char) (256*CLAMP(r, 0.0f, 1.0f));
+    img[real_pix_num + 1] = (unsigned char) (256*CLAMP(g, 0.0f, 1.0f));
+    img[real_pix_num + 2] = (unsigned char) (256*CLAMP(b, 0.0f, 1.0f));
+
     return;
 }
-/*
-*/
-__kernel void testg(
-    __constant int* input,
-    __global float* output) 
-{
-    int i = get_global_id(0);
-    //printf("hi %f %f %f\n", joe.x, joe.y, joe.z);
-    //printf("aj\n");n
-    output[i] = input[i] * input[i];
-    printf("hi\n");
-    return;
-    ulong a=69420,b=0;
-    for (int i=0;i<20;i++) {
-        printf("%f\n", random(&a,&b));
-    }
 
-    Sphere joe = (Sphere) {.r = 5, .pos = (float3) (10.0f, 1.0f, 1.0f)};
-    float3 pos = (float3) (0.0f, 0.0f, 0.0f);
-    float3 direc = (float3) (1.0f, 0.0f, 0.0f);
-    float t = sphere_intersect2(&joe,pos,direc);
-    //return;
-    output[i] = t;
-
-
-}

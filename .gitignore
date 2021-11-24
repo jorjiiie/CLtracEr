@@ -58,3 +58,6 @@ dkms.conf
 *.jpeg
 *.txt
 
+# Build Directory
+build/
+
