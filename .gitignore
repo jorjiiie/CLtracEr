@@ -41,6 +41,7 @@
 *.su
 *.idb
 *.pdb
+.DS_STORE
 
 # Kernel Module Compile Results
 *.mod*
@@ -61,3 +62,5 @@ dkms.conf
 # Build Directory
 build/
 
+# whitelist cmake
+!CmakeLists.txt
