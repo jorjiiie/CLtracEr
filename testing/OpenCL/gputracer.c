@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <GLFW/glfw3.h>
 
 #define CL_TARGET_OPENCL_VERSION 120
 #define __CL_ENABLE_EXCEPTIONS
@@ -28,12 +27,10 @@
 #define MAX_SOURCE 10000 * sizeof(char)
 #define NUM_VALUES (1<<0)
 
-const int IMG_WIDTH = 300;
-const int IMG_HEIGHT = 200;
+const int IMG_WIDTH = 600;
+const int IMG_HEIGHT = 400;
 
-const int SAMPLES = 50000;
-const int NUM_BLOCKS = 1<<2;
-const int BLOCK_SZ = SAMPLES/NUM_BLOCKS;
+const int SAMPLES = 10000;
 
 // padded to 32 bytes
 typedef struct {
@@ -172,12 +169,6 @@ void init_scene() {
     target = (cl_float3) {cam.target.x, cam.target.y, cam.target.z};
 }
 int main() {
-
-    GLFWwindow* window;
-    if (!glfwInit()) {
-        printf("bad\n");
-        return 1;
-    }
 
     init_scene();
 

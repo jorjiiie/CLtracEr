@@ -26,14 +26,28 @@
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define ABS(a) ((a) < 0 ? (-a) : (a))
 #define MAX_SOURCE 10000 * sizeof(char)
-#define NUM_VALUES (1<<0)
 
 const int IMG_WIDTH = 600;
 const int IMG_HEIGHT = 400;
 
+// speeds for camera movement per second
+const double v_default = 150;
+const double v_theta = 0.2;
+const double v_phi = 0.2;
+const double mouse_sens = 0.002;
+// velocities!
+// theta, phi, forwards, side, up
+int v_t, v_p, v_f, v_s, v_u;
+
+// current angles ()
+double up_phi = PI/2, up_theta = 0;
+double phi = 0, theta = 0;
+double last_xpos, last_ypos;
 const int SAMPLES = 1000;
-const int NUM_BLOCKS = 1<<2;
-const int BLOCK_SZ = SAMPLES/NUM_BLOCKS;
+
+
+//change f2f
+int delta = 1;
 
 // padded to 32 bytes
 typedef struct {
@@ -51,10 +65,12 @@ typedef struct {
     cl_float d2;
     cl_float d3;
     // apparently adding this corrupts memory so i'm not doing it :sunglasses:
+    // padded to 48 bytes
     // cl_float3 d1;
 } Shader;
+// i should add this to kernel code but i can't be bothered
 typedef struct {
-    struct vec3 pos, target, up, d_width, d_height, direction, bottom_left;
+    struct vec3 pos, target, up, d_width, d_height, direction, bottom_left, side;
     int width,height;   
     double fov;
 } Camera;
@@ -131,25 +147,33 @@ void init_scene() {
         spheres[i]=spheres1[i];
         shaders[i]=shaders1[i];
     }
+}
+void init_cam() {
     // init cam
     // get everything yadayada
-    cam.width = IMG_WIDTH;
-    cam.height = IMG_HEIGHT;
-    cam.fov = 90;
-    cam.direction = (struct vec3) {1.0f, 0.0f, 0.0f};
-    cam.pos = (struct vec3) {0.0f, 0.0f, 0.0f};
-    cam.target = (struct vec3) {1.0f, 0.0f, 0.0f};
-    cam.up = (struct vec3) {0.0f, 0.0f, 1.0f};
+
     // even makes it even (duh)
     if (cam.width&1) cam.width++;
     if (cam.height&1) cam.height++;
 
-    vec3_sub(&cam.target,&cam.pos,&cam.direction);
+
+    cam.direction.x = cos(phi) * cos(theta);
+    cam.direction.y = cos(phi) * sin(theta);
+    cam.direction.z = sin(phi);
+
+    cam.up.x = cos(up_phi) * cos(up_theta);
+    cam.up.y = cos(up_phi) * sin(up_theta);
+    cam.up.z = sin(up_phi);
+
+    vec3_normalize(&cam.up, &cam.up);
+
+    vec3_add(&cam.direction,&cam.pos,&cam.target);
 
     double dist = sqrt(vec3_dot(&cam.direction, &cam.direction));
 
     vec3_cross(&cam.direction, &cam.up, &cam.d_width);
     vec3_normalize(&cam.d_width, &cam.d_width);
+    vec3_set(&cam.side, &cam.d_width);
 
     double scale = TAN_DEG(cam.fov/2.0) * 2.0 * dist / (cam.width-1);
 
@@ -170,6 +194,51 @@ void init_scene() {
     d_width = (cl_float3) {cam.d_width.x, cam.d_width.y, cam.d_width.z};
     bottom_left = (cl_float3) {cam.bottom_left.x, cam.bottom_left.y, cam.bottom_left.z};
     target = (cl_float3) {cam.target.x, cam.target.y, cam.target.z};
+}
+
+void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+  printf("hi\n");
+  switch(key) {
+    // velocities
+    // switch to an if statement to handle the up/down stuffs
+    case GLFW_KEY_W:
+        v_f = ((action == GLFW_PRESS || action == GLFW_REPEAT) ? 1 : 0);
+        break;
+    case GLFW_KEY_A:
+        v_s = ((action == GLFW_PRESS || action == GLFW_REPEAT) ? 1 : 0);
+        break;
+    case GLFW_KEY_S:
+        v_f = ((action == GLFW_PRESS || action == GLFW_REPEAT) ? -1 : 0);
+        break;
+    case GLFW_KEY_D:
+        v_s = ((action == GLFW_PRESS || action == GLFW_REPEAT) ? -1 : 0);
+        break;
+    case GLFW_KEY_SPACE:
+        v_u = ((action == GLFW_PRESS || action == GLFW_REPEAT) ? 1 : 0);
+        break;
+    case GLFW_KEY_LEFT_SHIFT:
+        v_u = (action == GLFW_PRESS ? -1 : 0);
+
+    default:
+        break;
+  }
+}
+void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
+    printf("xpos: %lf ypos %lf\n", xpos, ypos);
+
+    // only do xpos first
+    theta += (last_xpos - xpos) * -mouse_sens;
+    up_theta += (last_xpos - xpos) * -mouse_sens;
+    
+    // up has to change because of this as well!!
+    // figure out a way to relate theta, phi, and up -- or you can just do side = norm sin(theta) or something!!!
+
+    phi += (last_ypos - ypos) * mouse_sens;
+    up_phi += (last_ypos - ypos) * mouse_sens;
+    delta = 1;
+
+    last_xpos = xpos;
+    last_ypos = ypos;
 }
 int main() {
 
@@ -272,23 +341,6 @@ int main() {
     ret = clSetKernelArg(kernel, 4, sizeof(int), &IMG_HEIGHT);
         printf("%d\n",ret);
 
-    ret = clSetKernelArg(kernel, 5, sizeof(float), &cam.fov);
-        printf("%d\n",ret);
-
-    ret = clSetKernelArg(kernel, 6, sizeof(cl_float3), &pos);
-        printf("%d\n",ret);
-
-    ret = clSetKernelArg(kernel, 7, sizeof(cl_float3), &target);
-        printf("%d\n",ret);
-
-    ret = clSetKernelArg(kernel, 8, sizeof(cl_float3), &d_up);
-        printf("%d\n",ret);
-
-    ret = clSetKernelArg(kernel, 9, sizeof(cl_float3), &d_width);
-        printf("%d\n",ret);
-
-    ret = clSetKernelArg(kernel, 10, sizeof(cl_float3), &bottom_left);
-        printf("%d\n",ret);
 
     ret = clSetKernelArg(kernel, 11, sizeof(cl_mem), &output_img);
         printf("%d\n",ret);
@@ -328,19 +380,102 @@ int main() {
     glfwSetWindowSize(window,IMG_WIDTH,IMG_HEIGHT);
     glfwGetFramebufferSize(window, &width, &height);
     glViewport(0, 0, width, height);
+
     printf("%d %d %d %d\n",width,height, IMG_WIDTH, IMG_HEIGHT);
+
+
+    time_t last_time = clock();
+    time_t start = clock();
+    cam.width = IMG_WIDTH;
+    cam.height = IMG_HEIGHT;
+    cam.fov = 90;
+    cam.direction = (struct vec3) {1.0f, 0.0f, 0.0f};
+    cam.pos = (struct vec3) {0.0f, 0.0f, 0.0f};
+    // no target, target is just direction + pos
+    cam.up = (struct vec3) {0.0f, 0.0f, 1.0f};
+
+    // cursor + keyboard callbacks
+    glfwSetKeyCallback(window, glfwKeyCallback);
+    glfwSetCursorPosCallback(window, glfwCursorCallback);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwGetCursorPos(window, &last_xpos, &last_ypos);
+
+    init_cam();
     while (!glfwWindowShouldClose(window)) {
+
+        glfwPollEvents();
+        // continue;
+
+        // // move cam to da side every 10 frames move in front a teensy bit
+        // if (current_sample == 30) {
+        //     cam.target.z += .1;
+        //     delta = 1;
+        // }
+        // printf("%f\n", cam.pos.x);
+
+        double seconds =  (double) (clock() - last_time) / CLOCKS_PER_SEC;
+
+        // v2d addition * the target/side/up vector
+        struct vec3 tmp;
+
+        if (v_f) {
+            vec3_multiply(&cam.direction,v_f*seconds*v_default,&tmp);
+            vec3_add(&cam.pos,&tmp,&cam.pos);
+            delta = 1;
+        }
+        if (v_s) {
+            vec3_multiply(&cam.side,v_s*seconds*v_default,&tmp);
+            printf("ADDING %lf %lf %lf\n", tmp.x, tmp.y, tmp.z);
+            vec3_add(&cam.pos,&tmp,&cam.pos);
+            delta = 1;
+        }
+        if (v_u) {
+            cam.pos.z += (v_default * v_u * seconds);
+            delta = 1;
+        }
+
+
+        // lower fps slightly to get better visuals
+        if (delta && current_sample >= 6) {
+            init_cam();
+            current_sample = 0;
+        }
+
+
+
+        ret = clSetKernelArg(kernel, 5, sizeof(float), &cam.fov);
+            // printf("%d\n",ret);
+
+        ret = clSetKernelArg(kernel, 6, sizeof(cl_float3), &pos);
+            // printf("%d\n",ret);
+
+        ret = clSetKernelArg(kernel, 7, sizeof(cl_float3), &target);
+            // printf("%d\n",ret);
+
+        ret = clSetKernelArg(kernel, 8, sizeof(cl_float3), &d_up);
+            // printf("%d\n",ret);
+
+        ret = clSetKernelArg(kernel, 9, sizeof(cl_float3), &d_width);
+            // printf("%d\n",ret);
+
+        ret = clSetKernelArg(kernel, 10, sizeof(cl_float3), &bottom_left);
+            // printf("%d\n",ret);
+
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         ret = clSetKernelArg(kernel, 13, sizeof(int), &current_sample);
-            printf("%d\n",ret);
+
+            // printf("%d %d %lf, %lld %d, %lf %lf %lf\n",ret,current_sample, seconds, (long long) last_time, CLOCKS_PER_SEC, (float) (clock() - start) / CLOCKS_PER_SEC, phi, theta);
+        // printf("%lf %lf %lf\n", cam.side.x, cam.side.y, cam.side.z);
         size_t global_work_size = IMG_WIDTH * IMG_HEIGHT;
         size_t local_work_size = 16;
 
         ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
                                 &global_work_size, &local_work_size, 0, 
                                 NULL, event);
+
         clWaitForEvents(1,event);
+
         //printf("%d hi sample# %d %d %d %d\n",ret,current_sample, (int) final_img[0], (int)final_img[1], (int)final_img[2]);
         ret = clEnqueueReadBuffer(command_queue, img_buffer, CL_TRUE, 0, IMG_WIDTH * IMG_HEIGHT * sizeof(unsigned char) * 3,
                                 final_img, 0, NULL, NULL);
@@ -348,9 +483,12 @@ int main() {
 
         glDrawPixels(IMG_WIDTH,IMG_HEIGHT,GL_RGB,GL_UNSIGNED_BYTE,final_img);
         glfwSwapBuffers(window);
-        glfwWaitEvents();
-        current_sample++;
 
+
+
+        current_sample++;
+        last_time = clock();
+        delta = 0;
     }
         //*/
 
