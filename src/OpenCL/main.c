@@ -25,7 +25,7 @@
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define ABS(a) ((a) < 0 ? (-a) : (a))
-#define MAX_SOURCE 10000 * sizeof(char)
+#define MAX_SOURCE 100000 * sizeof(char)
 
 const int IMG_WIDTH = 600;
 const int IMG_HEIGHT = 400;
@@ -141,7 +141,7 @@ void init_scene() {
                   .ior = 1.5},
         (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
-                  .type = 1},
+                  .type = 1}
     };
     for (int i=0;i<9;i++) {
         spheres[i]=spheres1[i];
@@ -226,15 +226,21 @@ void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int 
 void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
     printf("xpos: %lf ypos %lf\n", xpos, ypos);
 
-    // only do xpos first
     theta += (last_xpos - xpos) * -mouse_sens;
     up_theta += (last_xpos - xpos) * -mouse_sens;
     
-    // up has to change because of this as well!!
-    // figure out a way to relate theta, phi, and up -- or you can just do side = norm sin(theta) or something!!!
 
-    phi += (last_ypos - ypos) * mouse_sens;
-    up_phi += (last_ypos - ypos) * mouse_sens;
+
+    // check if above hemisphere plus small delta
+    double dy = last_ypos - ypos;
+    if (dy < 0 && phi > -(PI/2 - 0.04)) {
+        phi += (last_ypos - ypos) * mouse_sens;
+        up_phi += (last_ypos - ypos) * mouse_sens;
+    }
+    else if ((phi < PI/2 - 0.04) && dy > 0) {
+        phi += (last_ypos - ypos) * mouse_sens;
+        up_phi += (last_ypos - ypos) * mouse_sens;
+    }
     delta = 1;
 
     last_xpos = xpos;
@@ -242,12 +248,14 @@ void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
 }
 int main() {
 
+    srand(69);
+    
     GLFWwindow* window;
     if (!glfwInit()) {
         printf("bad\n");
         return 1;
     }
-    window = glfwCreateWindow(3,2,"hi\n",NULL,NULL);
+    window = glfwCreateWindow(IMG_WIDTH,IMG_HEIGHT,"hi\n",NULL,NULL);
     if (!window) {
         printf("no window\n");
         return 1;
@@ -418,14 +426,20 @@ int main() {
         // v2d addition * the target/side/up vector
         struct vec3 tmp;
 
+        // this should be independent of z, so just take out the z and norm it
         if (v_f) {
+            cam.direction.z = 0;
+            vec3_normalize(&cam.direction, &cam.direction);
             vec3_multiply(&cam.direction,v_f*seconds*v_default,&tmp);
+            tmp.z = 0;
             vec3_add(&cam.pos,&tmp,&cam.pos);
             delta = 1;
         }
         if (v_s) {
+            cam.side.z = 0;
+            vec3_normalize(&cam.side, &cam.side);
             vec3_multiply(&cam.side,v_s*seconds*v_default,&tmp);
-            printf("ADDING %lf %lf %lf\n", tmp.x, tmp.y, tmp.z);
+            tmp.z = 0;
             vec3_add(&cam.pos,&tmp,&cam.pos);
             delta = 1;
         }
@@ -436,7 +450,7 @@ int main() {
 
 
         // lower fps slightly to get better visuals
-        if (delta && current_sample >= 6) {
+        if (delta && current_sample >= 5) {
             init_cam();
             current_sample = 0;
         }
@@ -464,6 +478,13 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         ret = clSetKernelArg(kernel, 13, sizeof(int), &current_sample);
+
+        int seed1 = rand();
+        int seed2 = rand();
+
+
+        ret = clSetKernelArg(kernel, 14, sizeof(int), &seed1);
+        ret = clSetKernelArg(kernel, 15, sizeof(int), &seed2);
 
             // printf("%d %d %lf, %lld %d, %lf %lf %lf\n",ret,current_sample, seconds, (long long) last_time, CLOCKS_PER_SEC, (float) (clock() - start) / CLOCKS_PER_SEC, phi, theta);
         // printf("%lf %lf %lf\n", cam.side.x, cam.side.y, cam.side.z);

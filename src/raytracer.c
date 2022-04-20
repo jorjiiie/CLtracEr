@@ -33,11 +33,13 @@
 struct vec3 {
 	double x,y,z;
 };
+
 void vec3_set(struct vec3* a, struct vec3* b) {
 	a->x = b->x;
 	a->y = b->y;
 	a->z = b->z;
 }
+
 void vec3_normalize(struct vec3* vec, struct vec3* out) {
 	double fac = 1.0/sqrt(vec->x*vec->x+vec->y*vec->y+vec->z*vec->z);
 	out->x = vec->x * fac;

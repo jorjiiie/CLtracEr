@@ -48,6 +48,7 @@ inline void halton(int n, float* w_fac, float* h_fac) {
 }
 inline float random(ulong *seed0, ulong *seed1) {
     // pcg32
+    // i suspect this is causing the high frequency noise in the pic
     ulong oldstate = *seed0;
     *seed0 = oldstate * 6364136223846793005ULL + (*seed1|1);
 
@@ -110,7 +111,7 @@ float sphere_intersect2(Sphere *sphere, float3 pos, float3 direc) {
 
 }
 float3 sphere_normal(Sphere sphere, float3 point) {
-    return (float3) (point - sphere.pos);
+    return normalize(point - sphere.pos);
 }
 float3 get_cam_ray(int width_id, 
                 int height_id, 
@@ -133,7 +134,7 @@ float3 trace(__constant Sphere* spheres,
     float3 attenuation = (float3) (1.0f, 1.0f, 1.0f);
 
     // 10 max bounces, after 4 = RR
-    for (int bounces=0; bounces<15; bounces++) {
+    for (int bounces=0; bounces<10; bounces++) {
         float min_t = FAR_CLIP;
         Sphere hit;
         int hit_id = -1;
@@ -161,9 +162,8 @@ float3 trace(__constant Sphere* spheres,
         attenuation *= shaders[hit_id].alb;
 
         float3 hit_point = pos + (direction * min_t);
-        float3 normal = normalize(sphere_normal(hit,hit_point));
+        float3 normal = sphere_normal(hit,hit_point);
         float cos_t = dot(direction, normal);
-
         // shaders switch
         if (shaders[hit_id].type == 0) {
             // diffuse
@@ -178,41 +178,54 @@ float3 trace(__constant Sphere* spheres,
             direction = normalize(direction) + normal;
         } else if (shaders[hit_id].type == 1) {
             // glossy
+
             if (cos_t > 0)
                 normal = -normal;
 
             direction = (direction - (normal * dot(normal, direction) * 2));
 
-        } else if (shaders[hit_id].type==2){
-            // transmissive
+        } else if (shaders[hit_id].type==2) {
+            // glass
+
+            // fix this idiot lol
+            // flip normal wtf
             float ior = shaders[hit_id].ior;
-            int inside = 0;
+            int inside = 1;
             if (cos_t < 0) {
-                // the right way
+                normal = -normal;    
+                inside = 0;
                 ior = 1.0/ior;
-            } else {
-                inside = 1;
-                normal = -normal;
-                cos_t = -cos_t;
-            }
-            float sin_t = sqrt(1.0-cos_t*cos_t);
+		cos_t = -cos_t;
+            } 
 
-            float r0 = (1-ior) / (1+ior);
+            float sint = sqrt(1.0-(cos_t*cos_t));
+
+
+            float r0 = (1.0-ior) / (1.0+ior);
             r0 = r0*r0;
-            float r1 = r0 + (1+r0)*pow((1-cos_t),5);
-           // printf("cos: %f sin: %f ior:%f\n",cos_t,sin_t, ior);
-            if (ior*sin_t <= 1.0 || r1 > random(seed0, seed1)) {
-                float sin_t1 = ior * sin_t;
-                float cos_t1 = sqrt(1-sin_t1*sin_t1);
-                //printf("%f\n",sin_t1);
-                float3 r_par = cos_t1 * (normal);
+            float r1 = r0 + (1.0+r0)*pow((1.0-fabs(cos_t)),5);
+            //printf("cos: %f sin: %f ior:%f\n",cos_t,sin_t, ior);
+               
 
-                float3 r_perp = sin_t1 * normalize(direction - (-cos_t * normal));
-               // printf("inside new direction = %f %f %f\n ", direction.x, direction.y, direction.z);
-                direction = r_par + r_perp;
+            if (ior * sint <= 1.0 || r1 > random(seed0, seed1)) {
+         
+
+
+                float3 perp = (direction + (-cos_t * normal)) * ior*sint;
+                float3 par = normal * (sqrt(1-ior*ior*sint*sint));
+                
+                direction = perp+par;
+
             } else {
+                // reflect mf
+                // some bright color or 
+
+                //color += (attenuation * (float3) (1,0,0));
+                direction = (direction + (normal * dot(normal, direction) * 2));
+                /*
                 normal = -normal;
                 direction = (direction + (normal * dot(normal, direction) * 2));
+                */
             }
     
 
@@ -226,6 +239,7 @@ float3 trace(__constant Sphere* spheres,
             if (random(seed0,seed1) > prob) {
                 break;
             }
+
             attenuation = attenuation/prob;
         }
     }
@@ -248,15 +262,17 @@ __kernel void progressive_refine(__constant Sphere* spheres,
                                 const float3 bottom_left, 
                                 __global float3* output, 
                                 __global unsigned char* img, 
-                                int sample) {
+                                int sample,
+                                int s1,
+                                int s2) {
 
     int pix_num = get_global_id(0);
     int x_coord = pix_num % width;
     int y_coord = pix_num / width;
 
-    // random seeding
-    ulong seed0 = x_coord + 69 + sample * 4220;
-    ulong seed1 = y_coord + 4220 + sample * 69420;
+    // random seeding (mostly from s1/s2lol)
+    ulong seed0 = x_coord * 69 + sample * 420 + s1;
+    ulong seed1 = y_coord * 69 + sample * 69420 + s2;
     float3 accum = (float3) (0.0f, 0.0f, 0.0f);
 
     random(&seed0, &seed1);
@@ -281,6 +297,7 @@ __kernel void progressive_refine(__constant Sphere* spheres,
     // to flip, it's height - (current_height + 1) * 3 + width * 3
     // inside down bc opengl is awk
     int real_pix_num = ((height - 1 - y_coord) * width + x_coord) * 3;
+
     img[real_pix_num    ] = (unsigned char) (256*CLAMP(r, 0.0f, 1.0f));
     img[real_pix_num + 1] = (unsigned char) (256*CLAMP(g, 0.0f, 1.0f));
     img[real_pix_num + 2] = (unsigned char) (256*CLAMP(b, 0.0f, 1.0f));

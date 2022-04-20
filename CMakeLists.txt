@@ -7,10 +7,10 @@ configure_file(src/OpenCL/kernel.cl kernel.cl COPYONLY)
 add_definitions(-DGL_SILENCE_DEPRECATION)
 
 if (APPLE) 
-	
-	list(APPEND EXTRA_LIBS
-		"-framework OpenGL -framework OpenCL"
-	)
+    
+    list(APPEND EXTRA_LIBS
+        "-framework OpenGL -framework OpenCL"
+    )
 
 elseif(WIN32)
     list(APPEND EXTRA_LIBS
