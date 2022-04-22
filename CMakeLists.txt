@@ -9,7 +9,7 @@ add_definitions(-DGL_SILENCE_DEPRECATION)
 if (APPLE) 
     
     list(APPEND EXTRA_LIBS
-        "-framework OpenGL -framework OpenCL"
+        "-framework OpenGL -framework OpenCL -g"
     )
 
 elseif(WIN32)
@@ -23,5 +23,5 @@ else()
     )
 endif()
 
-add_executable(glfw-test src/OpenCL/main.c)
-target_link_libraries(glfw-test glfw ${EXTRA_LIBS})
+add_executable(CLtracEr src/OpenCL/main.c)
+target_link_libraries(CLtracEr glfw ${EXTRA_LIBS})

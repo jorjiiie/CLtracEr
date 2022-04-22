@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <sys/time.h>
 #include <GLFW/glfw3.h>
 
 #define CL_TARGET_OPENCL_VERSION 120
@@ -8,8 +9,13 @@
 
 #ifdef __APPLE__
 	#include <OpenCL/OpenCL.h>
+    #define TIMETEST
 #else
 	#include <CL/cl.h>
+#endif
+
+#ifdef __linux__
+    #define TIMETEST
 #endif
 
 #include "vec3.c"
@@ -31,7 +37,7 @@ const int IMG_WIDTH = 600;
 const int IMG_HEIGHT = 400;
 
 // speeds for camera movement per second
-const double v_default = 150;
+const double v_default = 15;
 const double v_theta = 0.2;
 const double v_phi = 0.2;
 const double mouse_sens = 0.002;
@@ -218,6 +224,11 @@ void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int 
         break;
     case GLFW_KEY_LEFT_SHIFT:
         v_u = (action == GLFW_PRESS ? -1 : 0);
+        break;
+    case GLFW_KEY_ESCAPE:
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+        break;
+
 
     default:
         break;
@@ -246,16 +257,25 @@ void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
     last_xpos = xpos;
     last_ypos = ypos;
 }
+#ifdef TIMETEST
+    #define frame_count 20
+    long long ft[frame_count];
+
+    int cur = 0;
+    long long total_time = 0;
+#endif
 int main() {
 
     srand(69);
     
+
+
     GLFWwindow* window;
     if (!glfwInit()) {
         printf("bad\n");
         return 1;
     }
-    window = glfwCreateWindow(IMG_WIDTH,IMG_HEIGHT,"hi\n",NULL,NULL);
+    window = glfwCreateWindow(IMG_WIDTH,IMG_HEIGHT,"Super cool ray tracer",NULL,NULL);
     if (!window) {
         printf("no window\n");
         return 1;
@@ -356,7 +376,7 @@ int main() {
     ret = clSetKernelArg(kernel, 12, sizeof(cl_mem), &img_buffer);
         printf("%d\n", ret);
 
-    cl_event* event;
+    cl_event event;
     unsigned char* final_img = (unsigned char*) malloc(IMG_HEIGHT*IMG_WIDTH*sizeof(unsigned char) * 3);
     int current_sample = 0;
    /*
@@ -409,7 +429,14 @@ int main() {
     glfwGetCursorPos(window, &last_xpos, &last_ypos);
 
     init_cam();
+    last_time = clock();
     while (!glfwWindowShouldClose(window)) {
+
+        #ifdef TIMETEST
+            struct timeval frame_begin_tv;
+            gettimeofday(&frame_begin_tv, NULL);
+        #endif
+
 
         glfwPollEvents();
         // continue;
@@ -421,40 +448,15 @@ int main() {
         // }
         // printf("%f\n", cam.pos.x);
 
-        double seconds =  (double) (clock() - last_time) / CLOCKS_PER_SEC;
 
-        // v2d addition * the target/side/up vector
-        struct vec3 tmp;
-
-        // this should be independent of z, so just take out the z and norm it
-        if (v_f) {
-            cam.direction.z = 0;
-            vec3_normalize(&cam.direction, &cam.direction);
-            vec3_multiply(&cam.direction,v_f*seconds*v_default,&tmp);
-            tmp.z = 0;
-            vec3_add(&cam.pos,&tmp,&cam.pos);
-            delta = 1;
-        }
-        if (v_s) {
-            cam.side.z = 0;
-            vec3_normalize(&cam.side, &cam.side);
-            vec3_multiply(&cam.side,v_s*seconds*v_default,&tmp);
-            tmp.z = 0;
-            vec3_add(&cam.pos,&tmp,&cam.pos);
-            delta = 1;
-        }
-        if (v_u) {
-            cam.pos.z += (v_default * v_u * seconds);
-            delta = 1;
-        }
 
 
         // lower fps slightly to get better visuals
-        if (delta && current_sample >= 5) {
+        if (delta) {
             init_cam();
             current_sample = 0;
         }
-
+        delta = 0;
 
 
         ret = clSetKernelArg(kernel, 5, sizeof(float), &cam.fov);
@@ -493,14 +495,13 @@ int main() {
 
         ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
                                 &global_work_size, &local_work_size, 0, 
-                                NULL, event);
+                                NULL, &event);
 
-        clWaitForEvents(1,event);
+        clWaitForEvents(1,&event);
 
         //printf("%d hi sample# %d %d %d %d\n",ret,current_sample, (int) final_img[0], (int)final_img[1], (int)final_img[2]);
         ret = clEnqueueReadBuffer(command_queue, img_buffer, CL_TRUE, 0, IMG_WIDTH * IMG_HEIGHT * sizeof(unsigned char) * 3,
                                 final_img, 0, NULL, NULL);
-
 
         glDrawPixels(IMG_WIDTH,IMG_HEIGHT,GL_RGB,GL_UNSIGNED_BYTE,final_img);
         glfwSwapBuffers(window);
@@ -508,8 +509,53 @@ int main() {
 
 
         current_sample++;
+
+        double seconds =  (double) (clock() - last_time) / CLOCKS_PER_SEC;
+
+        // v2d addition * the target/side/up vector
+        struct vec3 tmp;
+
+        // this should be independent of z, so just take out the z and norm it
+        if (v_f) {
+            cam.direction.z = 0;
+            vec3_normalize(&cam.direction, &cam.direction);
+            vec3_multiply(&cam.direction,v_f*seconds*v_default,&tmp);
+            tmp.z = 0;
+            vec3_add(&cam.pos,&tmp,&cam.pos);
+            delta = 1;
+        }
+        if (v_s) {
+            cam.side.z = 0;
+            vec3_normalize(&cam.side, &cam.side);
+            vec3_multiply(&cam.side,v_s*seconds*v_default,&tmp);
+            tmp.z = 0;
+            vec3_add(&cam.pos,&tmp,&cam.pos);
+            delta = 1;
+        }
+        if (v_u) {
+            cam.pos.z += (v_default * v_u * seconds);
+            delta = 1;
+        }
         last_time = clock();
-        delta = 0;
+
+        #ifdef TIMETEST
+            struct timeval frame_end_tv;
+            gettimeofday(&frame_end_tv, NULL);
+
+            long usec_elapsed = (frame_end_tv.tv_sec - frame_begin_tv.tv_sec) * 1000000 + frame_end_tv.tv_usec - frame_begin_tv.tv_usec;
+
+            total_time -= ft[cur];
+
+            ft[cur++] = usec_elapsed;
+            total_time += usec_elapsed;
+
+            // printf("hi\n");
+            if (cur == frame_count / 2) {
+                printf("Average frame time for past %d frames is %lf ms or %d fps %lld %ld\n", frame_count, total_time/1000.0/frame_count, (int)(1000000*frame_count/total_time), total_time, usec_elapsed);
+                fflush(stdout);
+            }
+            cur %= frame_count;
+        #endif
     }
         //*/
 
@@ -535,36 +581,6 @@ int main() {
         }
 
 
-    /*
-
-
-    cl_mem a_device = clCreateBuffer(context, CL_MEM_READ_ONLY, 
-                            NUM_VALUES * sizeof(int), NULL, &ret);
-
-    cl_mem b_device = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 
-                            NUM_VALUES * sizeof(float), NULL, &ret);
-
-
-    ret = clEnqueueWriteBuffer(command_queue, a_device, CL_TRUE, 0, 
-                            NUM_VALUES * sizeof(int), a, 0, NULL, NULL);
-
-    cl_kernel kernel = clCreateKernel(program, "test", &ret);
-
-    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &a_device);
-    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &b_device);
-    size_t global_work_size = NUM_VALUES;
-    size_t local_work_size = 64;
-    ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
-                                    &global_work_size, &local_work_size, 0, 
-                                    NULL, NULL);
-
-    float *b = (float*) malloc(sizeof(float) * NUM_VALUES);
-    ret = clEnqueueReadBuffer(command_queue, b_device, CL_TRUE, 0, NUM_VALUES * sizeof(float)
-                                , b, 0, NULL, NULL);
-
-    printf("%d %d\n",ret, CL_SUCCESS);
-    printf("%lf\n",b[0]);
-    */
 
 
 

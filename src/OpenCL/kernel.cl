@@ -6,6 +6,7 @@ __constant int SAMPLES = 1<<10;
 __constant float NEAR_CLIP = 0.00003;
 __constant float FAR_CLIP = 10000000;
 __constant float IPI = 0.31830988618f;
+__constant int samples_per_iter = 10;
 #define CLAMP(a,mn,mx) (((a) > (mx)) ? (mx) : ((a) < (mn) ? (mn) : (a)))
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
@@ -195,7 +196,7 @@ float3 trace(__constant Sphere* spheres,
                 normal = -normal;    
                 inside = 0;
                 ior = 1.0/ior;
-		cos_t = -cos_t;
+        		cos_t = -cos_t;
             } 
 
             float sint = sqrt(1.0-(cos_t*cos_t));
@@ -278,20 +279,25 @@ __kernel void progressive_refine(__constant Sphere* spheres,
     random(&seed0, &seed1);
     random(&seed0, &seed1);
 
-    float wfac, hfac;
-    halton(sample,&wfac,&hfac);
-    float3 cam_ray = normalize(get_cam_ray(x_coord, y_coord, bottom_left,
-                                d_up, d_width) - pos + d_width * wfac + d_up * hfac);
-
     if (sample==0) {
         output[pix_num] = (float3) (0.0f, 0.0f, 0.0f);
     }
-    output[pix_num] += trace(spheres, shaders, num_spheres, pos, cam_ray, &seed0, &seed1);
-    
+
+    float wfac, hfac;
+    for (int i=0;i<samples_per_iter;i++) {
+        halton(sample*samples_per_iter + i,&wfac,&hfac);
+        float3 cam_ray = normalize(get_cam_ray(x_coord, y_coord, bottom_left,
+                                    d_up, d_width) - pos + d_width * wfac + d_up * hfac);
+
+
+        output[pix_num] += trace(spheres, shaders, num_spheres, pos, cam_ray, &seed0, &seed1);
+    }
+
+
     float r,g,b;
-    r = sqrt(output[pix_num].x/(sample+1));
-    g = sqrt(output[pix_num].y/(sample+1));
-    b = sqrt(output[pix_num].z/(sample+1));
+    r = sqrt(output[pix_num].x/((sample+1)*samples_per_iter));
+    g = sqrt(output[pix_num].y/((sample+1)*samples_per_iter));
+    b = sqrt(output[pix_num].z/((sample+1)*samples_per_iter));
 
 
     // to flip, it's height - (current_height + 1) * 3 + width * 3
