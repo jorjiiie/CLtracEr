@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <sys/time.h>
 #include <GLFW/glfw3.h>
 
 #define CL_TARGET_OPENCL_VERSION 120
@@ -49,8 +48,16 @@ int v_t, v_p, v_f, v_s, v_u;
 double up_phi = PI/2, up_theta = 0;
 double phi = 0, theta = 0;
 double last_xpos, last_ypos;
-const int SAMPLES = 1000;
 
+#ifdef TIMETEST
+    #include <sys/time.h>
+
+    #define frame_count 20
+    long long ft[frame_count];
+
+    int cur = 0;
+    long long total_time = 0;
+#endif
 
 //change f2f
 int delta = 1;
@@ -203,7 +210,6 @@ void init_cam() {
 }
 
 void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-  printf("hi\n");
   switch(key) {
     // velocities
     // switch to an if statement to handle the up/down stuffs
@@ -235,8 +241,6 @@ void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int 
   }
 }
 void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
-    printf("xpos: %lf ypos %lf\n", xpos, ypos);
-
     theta += (last_xpos - xpos) * -mouse_sens;
     up_theta += (last_xpos - xpos) * -mouse_sens;
     
@@ -248,7 +252,7 @@ void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
         phi += (last_ypos - ypos) * mouse_sens;
         up_phi += (last_ypos - ypos) * mouse_sens;
     }
-    else if ((phi < PI/2 - 0.04) && dy > 0) {
+    else if (dy > 0 && (phi < PI/2 - 0.04)) {
         phi += (last_ypos - ypos) * mouse_sens;
         up_phi += (last_ypos - ypos) * mouse_sens;
     }
@@ -257,13 +261,7 @@ void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
     last_xpos = xpos;
     last_ypos = ypos;
 }
-#ifdef TIMETEST
-    #define frame_count 20
-    long long ft[frame_count];
 
-    int cur = 0;
-    long long total_time = 0;
-#endif
 int main() {
 
     srand(69);
@@ -296,7 +294,6 @@ int main() {
     source_str = (char*) malloc(MAX_SOURCE);
     source_size = fread(source_str, 1, MAX_SOURCE, kernel_source);
     fclose(kernel_source);
-    // fprintf(stdout, "%d %s\n %ld",(int)source_size, source_str, source_size);
 
     cl_platform_id platform_id = NULL;
     cl_device_id device_id = NULL;
@@ -347,10 +344,10 @@ int main() {
 
     ret = clEnqueueWriteBuffer(command_queue, sphere_device, CL_TRUE, 0,
                             num_spheres * sizeof(Sphere), &spheres, 0, NULL, NULL);
-     printf("%d\n",ret);
+    printf("%d\n",ret);
     ret = clEnqueueWriteBuffer(command_queue, shader_device, CL_TRUE, 0,
                             num_spheres * sizeof(Shader), &shaders, 0, NULL, NULL);
-     printf("%d\n",ret);
+    printf("%d\n",ret);
 
     cl_kernel kernel = clCreateKernel(program, "progressive_refine", &ret);
      printf("%d\n",ret);
@@ -358,48 +355,25 @@ int main() {
     ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &sphere_device);
     printf("%d\n",ret);
     ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &shader_device);
-        printf("%d\n",ret);
+    printf("%d\n",ret);
 
     ret = clSetKernelArg(kernel, 2, sizeof(int), &num_spheres);
-        printf("%d\n",ret);
+    printf("%d\n",ret);
 
     ret = clSetKernelArg(kernel, 3, sizeof(int), &IMG_WIDTH);
-        printf("%d\n",ret);
+    printf("%d\n",ret);
 
     ret = clSetKernelArg(kernel, 4, sizeof(int), &IMG_HEIGHT);
-        printf("%d\n",ret);
-
+    printf("%d\n",ret);
 
     ret = clSetKernelArg(kernel, 11, sizeof(cl_mem), &output_img);
-        printf("%d\n",ret);
+    printf("%d\n",ret);
 
     ret = clSetKernelArg(kernel, 12, sizeof(cl_mem), &img_buffer);
-        printf("%d\n", ret);
+    printf("%d\n", ret);
 
     cl_event event;
     unsigned char* final_img = (unsigned char*) malloc(IMG_HEIGHT*IMG_WIDTH*sizeof(unsigned char) * 3);
-    int current_sample = 0;
-   /*
-    for (int current_sample = 0; current_sample < SAMPLES; current_sample++) {
-        ret = clSetKernelArg(kernel, 13, sizeof(int), &current_sample);
-            printf("%d\n",ret);
-
-        size_t global_work_size = IMG_WIDTH * IMG_HEIGHT;
-        size_t local_work_size = 16;
-
-        ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, 
-                                &global_work_size, &local_work_size, 0, 
-                                NULL, event);
-        clWaitForEvents(1,event);
-        printf("%d hi sample# %d\n",ret,current_sample);
-    
-      ret = clEnqueueReadBuffer(command_queue, img_buffer, CL_TRUE, 0, IMG_WIDTH * IMG_HEIGHT * sizeof(unsigned char) * 3,
-                                final_img, 0, NULL, NULL);
-    printf("%d\n",ret);
-
-    }    //*/
-
-    ///*
 
     
     glfwMakeContextCurrent(window);
@@ -430,8 +404,10 @@ int main() {
 
     init_cam();
     last_time = clock();
+    int current_sample = 0;
     while (!glfwWindowShouldClose(window)) {
 
+        // this measures frametime not elapsed time between events
         #ifdef TIMETEST
             struct timeval frame_begin_tv;
             gettimeofday(&frame_begin_tv, NULL);
@@ -439,19 +415,7 @@ int main() {
 
 
         glfwPollEvents();
-        // continue;
 
-        // // move cam to da side every 10 frames move in front a teensy bit
-        // if (current_sample == 30) {
-        //     cam.target.z += .1;
-        //     delta = 1;
-        // }
-        // printf("%f\n", cam.pos.x);
-
-
-
-
-        // lower fps slightly to get better visuals
         if (delta) {
             init_cam();
             current_sample = 0;
@@ -460,22 +424,16 @@ int main() {
 
 
         ret = clSetKernelArg(kernel, 5, sizeof(float), &cam.fov);
-            // printf("%d\n",ret);
 
         ret = clSetKernelArg(kernel, 6, sizeof(cl_float3), &pos);
-            // printf("%d\n",ret);
 
         ret = clSetKernelArg(kernel, 7, sizeof(cl_float3), &target);
-            // printf("%d\n",ret);
 
         ret = clSetKernelArg(kernel, 8, sizeof(cl_float3), &d_up);
-            // printf("%d\n",ret);
 
         ret = clSetKernelArg(kernel, 9, sizeof(cl_float3), &d_width);
-            // printf("%d\n",ret);
 
         ret = clSetKernelArg(kernel, 10, sizeof(cl_float3), &bottom_left);
-            // printf("%d\n",ret);
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -488,8 +446,6 @@ int main() {
         ret = clSetKernelArg(kernel, 14, sizeof(int), &seed1);
         ret = clSetKernelArg(kernel, 15, sizeof(int), &seed2);
 
-            // printf("%d %d %lf, %lld %d, %lf %lf %lf\n",ret,current_sample, seconds, (long long) last_time, CLOCKS_PER_SEC, (float) (clock() - start) / CLOCKS_PER_SEC, phi, theta);
-        // printf("%lf %lf %lf\n", cam.side.x, cam.side.y, cam.side.z);
         size_t global_work_size = IMG_WIDTH * IMG_HEIGHT;
         size_t local_work_size = 16;
 
@@ -499,17 +455,15 @@ int main() {
 
         clWaitForEvents(1,&event);
 
-        //printf("%d hi sample# %d %d %d %d\n",ret,current_sample, (int) final_img[0], (int)final_img[1], (int)final_img[2]);
         ret = clEnqueueReadBuffer(command_queue, img_buffer, CL_TRUE, 0, IMG_WIDTH * IMG_HEIGHT * sizeof(unsigned char) * 3,
                                 final_img, 0, NULL, NULL);
 
-        glDrawPixels(IMG_WIDTH,IMG_HEIGHT,GL_RGB,GL_UNSIGNED_BYTE,final_img);
-        glfwSwapBuffers(window);
+        
 
 
 
-        current_sample++;
-
+        // just a heads up this is kinda bad as it doesn't factor in gpu time and only cpu time
+        // so if the scene has varying complexity its gonna be bad (inconsistent)
         double seconds =  (double) (clock() - last_time) / CLOCKS_PER_SEC;
 
         // v2d addition * the target/side/up vector
@@ -538,6 +492,8 @@ int main() {
         }
         last_time = clock();
 
+        current_sample++;
+
         #ifdef TIMETEST
             struct timeval frame_end_tv;
             gettimeofday(&frame_end_tv, NULL);
@@ -549,25 +505,20 @@ int main() {
             ft[cur++] = usec_elapsed;
             total_time += usec_elapsed;
 
-            // printf("hi\n");
             if (cur == frame_count / 2) {
-                printf("Average frame time for past %d frames is %lf ms or %d fps %lld %ld\n", frame_count, total_time/1000.0/frame_count, (int)(1000000*frame_count/total_time), total_time, usec_elapsed);
+                printf("Average frame time for past %d frames is %lf ms or %d fps %lld %ld %d %lf ms (cpu time)\n", frame_count, total_time/1000.0/frame_count, (int)(1000000*frame_count/total_time), total_time, usec_elapsed, current_sample, seconds*1000);
                 fflush(stdout);
             }
             cur %= frame_count;
         #endif
+            glDrawPixels(IMG_WIDTH,IMG_HEIGHT,GL_RGB,GL_UNSIGNED_BYTE,final_img);
+        glfwSwapBuffers(window);
     }
-        //*/
-
-    
-    
 
 
     ret = clEnqueueReadBuffer(command_queue, img_buffer, CL_TRUE, 0, IMG_WIDTH * IMG_HEIGHT * sizeof(unsigned char) * 3,
                                 final_img, 0, NULL, NULL);
-        printf("%d\n",ret);
-
-    // fprintf(stdout, "hi %f %f %f %d %d\n",img[0].x, img[0].y, img[0].z, IMG_WIDTH, IMG_HEIGHT);
+    printf("%d\n",ret);
 
     printf("hi\n");
     FILE *out = fopen("img.ppm", "w");
@@ -579,9 +530,5 @@ int main() {
                                         final_img[height_id * IMG_WIDTH * 3 + width_id * 3 + 2]);
                         
         }
-
-
-
-
 
 }

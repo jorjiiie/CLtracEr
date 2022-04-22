@@ -148,7 +148,6 @@ float3 trace(__constant Sphere* spheres,
                     hit = spheres[i];
                     hit_id = i;
                 }
-                //return attenuation;
             }
         }
 

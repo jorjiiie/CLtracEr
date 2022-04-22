@@ -5,11 +5,12 @@ add_subdirectory(lib/glfw)
 configure_file(src/OpenCL/kernel.cl kernel.cl COPYONLY)
 
 add_definitions(-DGL_SILENCE_DEPRECATION)
+add_definitions(-O3)
 
 if (APPLE) 
     
     list(APPEND EXTRA_LIBS
-        "-framework OpenGL -framework OpenCL -g"
+        "-framework OpenGL -framework OpenCL"
     )
 
 elseif(WIN32)
