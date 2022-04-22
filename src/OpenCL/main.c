@@ -262,7 +262,7 @@ void glfwCursorCallback(GLFWwindow* window, double xpos, double ypos) {
     last_ypos = ypos;
 }
 
-int main() {
+int main(int argc, char** argv) {
 
     srand(69);
     
@@ -378,8 +378,10 @@ int main() {
     
     glfwMakeContextCurrent(window);
     int width, height;
-    
-    glfwSetWindowSize(window,IMG_WIDTH,IMG_HEIGHT);
+    if (argc <= 1)
+        glfwSetWindowSize(window,IMG_WIDTH/2,IMG_HEIGHT/2);
+    else
+        glfwSetWindowSize(window, IMG_WIDTH, IMG_HEIGHT);
     glfwGetFramebufferSize(window, &width, &height);
     glViewport(0, 0, width, height);
 
@@ -504,14 +506,16 @@ int main() {
 
             ft[cur++] = usec_elapsed;
             total_time += usec_elapsed;
+                            printf("Average frame time for past %d frames is %lf ms or %d fps %lld %ld %d %lf ms (cpu time)\r", frame_count, total_time/1000.0/frame_count, (int)(1000000*frame_count/total_time), total_time, usec_elapsed, current_sample, seconds*1000);
 
             if (cur == frame_count / 2) {
-                printf("Average frame time for past %d frames is %lf ms or %d fps %lld %ld %d %lf ms (cpu time)\n", frame_count, total_time/1000.0/frame_count, (int)(1000000*frame_count/total_time), total_time, usec_elapsed, current_sample, seconds*1000);
+
+                // printf("\n");
                 fflush(stdout);
             }
             cur %= frame_count;
         #endif
-            glDrawPixels(IMG_WIDTH,IMG_HEIGHT,GL_RGB,GL_UNSIGNED_BYTE,final_img);
+        glDrawPixels(IMG_WIDTH,IMG_HEIGHT,GL_RGB,GL_UNSIGNED_BYTE,final_img);
         glfwSwapBuffers(window);
     }
 
