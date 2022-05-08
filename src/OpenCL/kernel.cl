@@ -262,9 +262,9 @@ __kernel void progressive_refine(__constant Sphere* spheres,
                                 const float3 bottom_left, 
                                 __global float3* output, 
                                 __global unsigned char* img, 
-                                int sample,
-                                int s1,
-                                int s2) {
+                                const int sample,
+                                const int s1,
+                                const int s2) {
 
     int pix_num = get_global_id(0);
     int x_coord = pix_num % width;
@@ -273,7 +273,6 @@ __kernel void progressive_refine(__constant Sphere* spheres,
     // random seeding (mostly from s1/s2lol)
     ulong seed0 = x_coord * 69 + sample * 420 + s1;
     ulong seed1 = y_coord * 69 + sample * 69420 + s2;
-    float3 accum = (float3) (0.0f, 0.0f, 0.0f);
 
     random(&seed0, &seed1);
     random(&seed0, &seed1);
@@ -284,7 +283,9 @@ __kernel void progressive_refine(__constant Sphere* spheres,
 
     float wfac, hfac;
     for (int i=0;i<samples_per_iter;i++) {
+
         halton(sample*samples_per_iter + i,&wfac,&hfac);
+        
         float3 cam_ray = normalize(get_cam_ray(x_coord, y_coord, bottom_left,
                                     d_up, d_width) - pos + d_width * wfac + d_up * hfac);
 

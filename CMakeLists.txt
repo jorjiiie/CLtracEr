@@ -1,5 +1,7 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.8)
+
 project(CLtracEr C)
+
 
 add_subdirectory(lib/glfw)
 configure_file(src/OpenCL/kernel.cl kernel.cl COPYONLY)
@@ -10,7 +12,7 @@ add_definitions(-O3)
 if (APPLE) 
     
     list(APPEND EXTRA_LIBS
-        "-framework OpenGL -framework OpenCL"
+	    "-framework OpenGL -framework OpenCL -framework Cocoa -framework Carbon"
     )
 
 elseif(WIN32)

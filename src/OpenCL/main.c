@@ -506,13 +506,8 @@ int main(int argc, char** argv) {
 
             ft[cur++] = usec_elapsed;
             total_time += usec_elapsed;
-                            printf("Average frame time for past %d frames is %lf ms or %d fps %lld %ld %d %lf ms (cpu time)\r", frame_count, total_time/1000.0/frame_count, (int)(1000000*frame_count/total_time), total_time, usec_elapsed, current_sample, seconds*1000);
-
-            if (cur == frame_count / 2) {
-
-                // printf("\n");
-                fflush(stdout);
-            }
+            printf("Average frame time for past %d frames is %lf ms or %d fps %lld %ld %d %lf ms (cpu time)       \r", frame_count, total_time/1000.0/frame_count, (int)(1000000*frame_count/total_time), total_time, usec_elapsed, current_sample, seconds*1000);
+            fflush(stdout);
             cur %= frame_count;
         #endif
         glDrawPixels(IMG_WIDTH,IMG_HEIGHT,GL_RGB,GL_UNSIGNED_BYTE,final_img);
