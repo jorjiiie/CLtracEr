@@ -38,6 +38,10 @@
 
 ![Alt text](https://cdn.discordapp.com/attachments/470588222779424768/988276258418876456/Screen_Shot_2022-06-19_at_10.56.54_PM.png) 
 
+# Demo
+
+![Video](https://user-images.githubusercontent.com/34224815/224220930-0b6dff9f-38e3-46c5-9ec3-5ca09b7ee555.mov)
+
 # Nerd Details
 
 * Jittering uses Halton Sampling to get deterministic "pseudorandom" stratification that helps with aliasing to get uniform sampling
