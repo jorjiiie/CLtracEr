@@ -49,7 +49,6 @@ inline void halton(int n, float* w_fac, float* h_fac) {
 }
 inline float random(ulong *seed0, ulong *seed1) {
     // pcg32
-    // i suspect this is causing the high frequency noise in the pic
     ulong oldstate = *seed0;
     *seed0 = oldstate * 6364136223846793005ULL + (*seed1|1);
 
@@ -80,7 +79,7 @@ int sphere_intersect(__constant Sphere *sphere, float3 pos, float3 direc, float 
 
     // t2 > t1 always
     //printf("%f %f %f %f\n", t2, t1, front, back);
-    if (t2 <= NEAR_CLIP) 
+    if (t2 <= NEAR_CLIP)   
         return 0;
 
     if (t1 <= NEAR_CLIP)
@@ -134,7 +133,7 @@ float3 trace(__constant Sphere* spheres,
     float3 color = (float3) (0.0f, 0.0f, 0.0f);
     float3 attenuation = (float3) (1.0f, 1.0f, 1.0f);
 
-    // 10 max bounces, after 4 = RR
+    // 10 max bounces, after 5 = RR
     for (int bounces=0; bounces<10; bounces++) {
         float min_t = FAR_CLIP;
         Sphere hit;
@@ -162,8 +161,9 @@ float3 trace(__constant Sphere* spheres,
         attenuation *= shaders[hit_id].alb;
 
         float3 hit_point = pos + (direction * min_t);
-        float3 normal = sphere_normal(hit,hit_point);
+        float3 normal = sphere_normal(hit,hit_point); //but sphere normal...
         float cos_t = dot(direction, normal);
+        //printf("cos_t is positive? %f\n",cos_t);
         // shaders switch
         if (shaders[hit_id].type == 0) {
             // diffuse
@@ -179,55 +179,41 @@ float3 trace(__constant Sphere* spheres,
         } else if (shaders[hit_id].type == 1) {
             // glossy
 
-            if (cos_t > 0)
+            if (cos_t > 0) 
                 normal = -normal;
 
             direction = (direction - (normal * dot(normal, direction) * 2));
 
         } else if (shaders[hit_id].type==2) {
             // glass
-
-            // fix this idiot lol
-            // flip normal wtf
             float ior = shaders[hit_id].ior;
-            int inside = 1;
-            if (cos_t < 0) {
-                normal = -normal;    
-                inside = 0;
-                ior = 1.0/ior;
-        		cos_t = -cos_t;
-            } 
-
-            float sint = sqrt(1.0-(cos_t*cos_t));
-
-
-            float r0 = (1.0-ior) / (1.0+ior);
-            r0 = r0*r0;
-            float r1 = r0 + (1.0+r0)*pow((1.0-fabs(cos_t)),5);
-            //printf("cos: %f sin: %f ior:%f\n",cos_t,sin_t, ior);
-               
-
-            if (ior * sint <= 1.0 || r1 > random(seed0, seed1)) {
-         
-
-
-                float3 perp = (direction + (-cos_t * normal)) * ior*sint;
-                float3 par = normal * (sqrt(1-ior*ior*sint*sint));
-                
-                direction = perp+par;
-
-            } else {
-                // reflect mf
-                // some bright color or 
-
-                //color += (attenuation * (float3) (1,0,0));
-                direction = (direction + (normal * dot(normal, direction) * 2));
-                /*
-                normal = -normal;
-                direction = (direction + (normal * dot(normal, direction) * 2));
-                */
+            float rat_io = 1.0/ior;
+            if (cos_t > 0) {
+              rat_io = 1.0/rat_io;
+              normal = -normal;
+              //printf("EXITING\n");
             }
-    
+            
+      			float r0 = (1-ior) / (1+ior);
+            r0 = r0*r0;
+            float r1 = r0 + (1+r0)*pow((1-cos_t),5);
+
+
+            float sin_t = sqrt(1.0-cos_t * cos_t);
+            if (rat_io * sin_t < 1.0 || r1 > random(seed0, seed1)) {
+              //refract
+              float3 rperp = rat_io * (direction + (ABS(cos_t) * normal));
+              float3 rpar = -sqrt(1.0-dot(rperp,rperp)) * normal;
+              direction = rperp + rpar;
+              
+              //printf("new direction is %f %f %f at point [%f %f %f] with normal [%f %f %f]\n", direction.x, direction.y, direction.z, hit_point.x, hit_point.y, hit_point.z, normal.x, normal.y, normal.z);
+
+                normal = -normal;
+            } else {
+            
+              direction = (direction - (normal * dot(normal, direction) * 2));
+            }
+           
 
         }
         direction = normalize(direction);
@@ -247,8 +233,7 @@ float3 trace(__constant Sphere* spheres,
     return color;
 
 }
-// second progressive refine thingie
-// img is gamma corrected averaged, output is just raw data
+// img is gamma corrected averaged (to screen output), output is just raw data
 __kernel void progressive_refine(__constant Sphere* spheres, 
                                 __constant Shader* shaders, 
                                 const int num_spheres,

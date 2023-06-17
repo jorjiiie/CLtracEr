@@ -120,7 +120,7 @@ void init_scene() {
                          .r = 2},
 
         (Sphere) {.pos = (cl_float3) {7,3,-1},
-                         .r = 1.5},
+                         .r = 1},
 
         (Sphere) {.pos = (cl_float3) {7,-1.5,2},
                          .r = 1.3}
@@ -148,7 +148,7 @@ void init_scene() {
         (Shader) {.alb = (cl_float3) {0.7f, 0.7f, 0.7f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
                   .type = 0},
-        (Shader) {.alb = (cl_float3) {0.2f, 0.8f, 0.2f},
+        (Shader) {.alb = (cl_float3) {1.0f, 1.0f, 1.0f},
                   .emit = (cl_float3) {0.0f, 0.0f, 0.0f},
                   .type = 2,
                   .ior = 1.5},
