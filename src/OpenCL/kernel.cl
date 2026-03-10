@@ -196,11 +196,11 @@ float3 trace(__constant Sphere* spheres,
             
       			float r0 = (1-ior) / (1+ior);
             r0 = r0*r0;
-            float r1 = r0 + (1+r0)*pow((1-cos_t),5);
+            float r1 = r0 + (1-r0)*pow((1-ABS(cos_t)),5);
 
 
             float sin_t = sqrt(1.0-cos_t * cos_t);
-            if (rat_io * sin_t < 1.0 || r1 > random(seed0, seed1)) {
+            if (rat_io * sin_t < 1.0 && r1 < random(seed0, seed1)) {
               //refract
               float3 rperp = rat_io * (direction + (ABS(cos_t) * normal));
               float3 rpar = -sqrt(1.0-dot(rperp,rperp)) * normal;
